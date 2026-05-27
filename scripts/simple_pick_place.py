@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """Simple pick-and-place script for UFactory xArm 6.
 
-This script connects to the xArm, moves to a safe start pose, opens the
-gripper, moves to the pick position, closes the gripper, moves to the place
-position, opens the gripper, and returns upward.
+This script connects to the xArm, moves to a safe start pose, then performs
+two pick-and-place cycles.
 
 Inputs:
     Robot connection through ROBOT_IP.
@@ -24,17 +23,23 @@ from xarm.wrapper import XArmAPI
 # TODO: Change this to the IP address shown on the xArm controller.
 ROBOT_IP = "192.168.1.200"
 
-# TODO: Change these poses after checking the real robot workspace.
-SAFE_START_ANGLES = [105.0, -11.1, -56.4, 0.0, 67.5, 24.5]
+# TODO: Change after checking workspace. (q1, q2, q3, q4, q5, q6)
+SAFE_START_ANGLES = [-1.4, -13.5, -60.2, 0.0, 73.5, -90.0]
 
-# TODO: Change pick/place positions for your table and object.
-PICK_ABOVE_POSE = [-79.8, 412.1, 400.0, 180.0, 0.0, 76.5]
-PICK_POSE = [-79.8, 412.1, 200.0, 180.0, 0.0, 76.5]
-PLACE_ABOVE_POSE = [522.0, -7.0, 400.0, 180.0, 0.0, 4.6]
-PLACE_POSE = [522.0, -7.0, 300.0, 180.0, 0.0, 4.6]
+# TODO: Change cycle 1 positions for your table/object. (x,y,z,Rx,Ry,Rz)
+PICK_1_ABOVE_POSE  = [411.2, -10, 520.0, 180.0, 0.0, 90.0]
+PICK_1_POSE        = [411.2, -10, 373, 180.0, 0.0, 90.0]
+PLACE_1_ABOVE_POSE = [300, -10, 520.0, 180.0, 0.0, 90.0]
+PLACE_1_POSE       = [300, -10, 373, 180.0, 0.0, 90.0]
+
+# TODO: Change cycle 2 positions for your second object/location. (x,y,z,Rx,Ry,Rz)
+PICK_2_ABOVE_POSE  = [411.2, 24.5, 520.0, 180.0, 0.0, 90.0]
+PICK_2_POSE        = [411.2, 24.5, 373, 180.0, 0.0, 90.0]
+PLACE_2_ABOVE_POSE = [300, 24.5, 520.0, 180.0, 0.0, 90.0]
+PLACE_2_POSE       = [300, 24.5, 373, 180.0, 0.0, 90.0]
 
 # TODO: Change gripper values if your object needs different opening.
-GRIPPER_OPEN_POSITION = 800
+GRIPPER_OPEN_POSITION = 280
 GRIPPER_CLOSED_POSITION = 0
 
 TCP_SPEED = 200
@@ -170,8 +175,55 @@ class SimplePickPlaceRobot:
         )
         return self.check_code(code, label)
 
-    def run(self):
+    def pick_and_place_cycle(
+        self,
+        pick_above_pose,
+        pick_pose,
+        place_above_pose,
+        place_pose,
+        cycle_name,
+    ):
         """Run one pick-and-place cycle."""
+        if not self.move_to_pose(
+            pick_above_pose,
+            "{}_move_pick_above".format(cycle_name),
+        ):
+            return False
+        if not self.move_to_pose(
+            pick_pose,
+            "{}_move_pick".format(cycle_name),
+        ):
+            return False
+
+        if not self.set_gripper_closed():
+            return False
+
+        if not self.move_to_pose(
+            pick_above_pose,
+            "{}_move_up_from_pick".format(cycle_name),
+        ):
+            return False
+        if not self.move_to_pose(
+            place_above_pose,
+            "{}_move_place_above".format(cycle_name),
+        ):
+            return False
+        if not self.move_to_pose(
+            place_pose,
+            "{}_move_place".format(cycle_name),
+        ):
+            return False
+
+        if not self.set_gripper_open():
+            return False
+
+        return self.move_to_pose(
+            place_above_pose,
+            "{}_move_up_from_place".format(cycle_name),
+        )
+
+    def run(self):
+        """Run two pick-and-place cycles."""
         try:
             code = self.arm.set_counter_reset()
             if not self.check_code(code, "set_counter_reset"):
@@ -197,32 +249,23 @@ class SimplePickPlaceRobot:
             if not self.check_code(code, "set_tcp_load_gripper"):
                 return
 
-            if not self.move_to_pose(PICK_ABOVE_POSE, "move_pick_above"):
-                return
-            if not self.move_to_pose(PICK_POSE, "move_pick"):
-                return
-
-            if not self.set_gripper_closed():
-                return
-
-            if not self.move_to_pose(PICK_ABOVE_POSE, "move_up_from_pick"):
-                return
-            if not self.move_to_pose(PLACE_ABOVE_POSE, "move_place_above"):
-                return
-            if not self.move_to_pose(PLACE_POSE, "move_place"):
+            if not self.pick_and_place_cycle(
+                PICK_1_ABOVE_POSE,
+                PICK_1_POSE,
+                PLACE_1_ABOVE_POSE,
+                PLACE_1_POSE,
+                "cycle_1",
+            ):
                 return
 
-            if not self.set_gripper_open():
+            if not self.pick_and_place_cycle(
+                PICK_2_ABOVE_POSE,
+                PICK_2_POSE,
+                PLACE_2_ABOVE_POSE,
+                PLACE_2_POSE,
+                "cycle_2",
+            ):
                 return
-
-            code = self.arm.set_tcp_load(
-                GRIPPER_MASS_KG,
-                GRIPPER_CENTER_OF_MASS_MM,
-            )
-            if not self.check_code(code, "set_tcp_load_gripper"):
-                return
-
-            self.move_to_pose(PLACE_ABOVE_POSE, "move_up_from_place")
 
         except Exception as error:
             self.print_message("MainException: {}".format(error))
