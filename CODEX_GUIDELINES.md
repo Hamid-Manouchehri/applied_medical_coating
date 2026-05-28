@@ -96,7 +96,7 @@ def function_name(args):
 - Things I dislike in code: data validation
 - Common mistakes Codex should watch for: -
 - My preferred workflow with Codex: -
-- Anything else Codex should remember for this project: -
+- Anything else Codex should remember for this project: keep the style of coding I do after modification the code. e.g. assignment signs "=" for trajectory points in a same columnn + specify the range of feasible user-defined parameters as a comment infront of the corresponding variable (e.g. GRIPPER_OPEN_POSITION).
 
 <!-- ## Current Project Notes
 
