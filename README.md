@@ -76,3 +76,20 @@ python ~/projects/applied_medical_coating/scripts/script_name.py
 ```
 
 * in order to read the output through serial port on your PC: tools -> Serial Monitor
+
+# Dynamic Peg Extraction Software Configuration
+
+## Arduino
+
+Arduino in this setup generates PWM pulse for the motor (stepper motor driver), also it reads from XArm6 controller in such a way if the output (DO0 & DO1) got triggered (through UFactory Studio) it start/stop and change the direction. for that compile and upload `mega2560_tb6600_stepper.ino`.
+
+## Python
+A python script takes care of trajectory plannign and dynamic grasping: `dynamic_peg_extraction.py`.
+
+
+## Push Botton
+| pushbutton | XArm6 DI |
+| ---------- | --------------------------------- |
+| button 1   | DI0 (one cycle of peg extraction) |
+| button 2   | DI1 (stop)                        |
+| button 3   | DI2 (recovery)                    |

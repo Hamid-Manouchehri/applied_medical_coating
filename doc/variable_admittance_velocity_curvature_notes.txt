@@ -1,0 +1,441 @@
+Title: Variable Admittance Control Using Velocity-Curvature Patterns to Enhance Physical Human-Robot Interaction
+
+Corrected Paper Notes
+
+============================================================
+BIG PICTURE
+============================================================
+
+1) What problem are they solving?
+
+They propose a variable admittance controller for physical human-robot interaction (pHRI), mainly for direct teaching / manual guidance.
+
+Important correction:
+This is not full 2D path planning. The robot does not know or generate the whole path in advance. Instead, the controller estimates the human's online intention and changes the robot's admittance/damping in real time.
+
+Goal:
+Make the robot both:
+- follow the human's applied force
+- assist/guide the human along the intended trajectory direction
+
+
+2) Why does this problem matter?
+
+In direct teaching, the human physically drags the robot to generate a trajectory.
+
+Fixed admittance has a limitation:
+- If damping is low, the robot is easy to move but less accurate/stable.
+- If damping is high, the robot is more accurate/stable but requires more effort.
+
+Variable admittance can adapt to the human's intention:
+- fast motion
+- precise motion
+- intended turning/path direction
+
+The paper argues that using only force magnitude is not enough, because it only captures direct intention. For better assistance, the robot should also infer indirect intention, meaning the likely path/turning direction.
+
+
+3) What is their main idea?
+
+They combine two types of human intention:
+
+A) Direct intention
+External force magnitude tells whether the human wants fast or precise motion.
+
+Large force:
+- human wants faster motion
+- controller lowers damping
+- robot becomes easier to move
+
+Small force:
+- human wants precise motion
+- controller increases damping
+- robot becomes more stable/accurate
+
+B) Indirect intention
+Previous movement tells where the human likely wants to go next.
+
+They estimate this using:
+- velocity-curvature power-law patterns
+- minimum-jerk theory
+
+Then they make the robot:
+- easy to move along the intended direction
+- harder to move perpendicular to the intended direction
+
+Core idea:
+Easy along the intended path, resistant sideways.
+
+
+4) What is new compared to prior work?
+
+Their novelty is using movement science / motor-control principles to estimate indirect human intention without training or a predefined path.
+
+Specifically, they use:
+- minimum-jerk model as a model of human motion planning
+- velocity-curvature power laws as a motion pattern in human drawing/movement
+- local online estimation of intended acceleration and intended force
+- anisotropic damping to guide motion
+
+Compared to prior work:
+- isotropic methods only change damping equally in all directions
+- FVAC does not estimate continuous intended direction well
+- Const. Rc assumes constant-curvature intention
+- neural network methods require training
+- virtual fixtures often need predefined paths or regions
+
+
+5) What are the key results?
+
+They compare the proposed controller against:
+- fixed admittance control
+- isotropic variable admittance control
+- FVAC
+- Const. Rc method
+
+Metrics:
+- path error: accuracy
+- dimensionless squared jerk (DSJ): smoothness
+- mean force: effort
+- task time
+
+Main reported result:
+The proposed controller improves accuracy, smoothness, and effort compared with the baselines.
+
+The paper reports at least:
+- 12.1% improvement in accuracy
+- 18.3% improvement in smoothness
+
+Interpretation:
+The controller makes interaction more intuitive because the robot's response better matches the human's expected motion direction.
+
+
+============================================================
+METHOD
+============================================================
+
+1) What are the inputs?
+
+Main inputs:
+- external force from the force/torque sensor: F_ext
+- current and previous robot/end-effector positions
+- current and previous velocities
+- estimated curvature from the recent trajectory
+- recent motion window for least-squares estimation
+
+In their experiment:
+- sampling rate: 125 Hz
+- least-squares window: N = 50 samples
+
+
+2) What are the outputs?
+
+Main outputs:
+- scalar damping value b_d from direct intention
+- estimated power-law parameters K_hat and beta_hat
+- intended acceleration v_dot_d
+- intended force F_hat_intended
+- final anisotropic damping matrix B_d
+- desired Cartesian velocity sent to the robot controller
+
+
+3) What is being estimated?
+
+They estimate:
+
+A) Power-law parameters
+K_hat and beta_hat are estimated from recent speed-curvature data.
+
+Power law:
+v = K * kappa^(-beta)
+
+where:
+- v = speed
+- kappa = curvature
+- K = velocity gain
+- beta = exponent showing how strongly speed depends on curvature
+
+B) Intended acceleration
+They solve a local optimization problem to estimate the next intended acceleration.
+
+C) Intended force direction
+They use the intended acceleration to compute an intended force. The direction of this intended force is treated as the intended motion direction.
+
+
+4) What is being optimized?
+
+They solve a local optimization problem, not a global trajectory planning problem.
+
+The optimization estimates the next intended acceleration such that it is:
+- smooth according to minimum-jerk logic
+- consistent with the estimated velocity-curvature power law
+- directionally consistent with current force and velocity
+
+So Eq. 10 is basically:
+Find the next acceleration that looks smooth and human-like, while agreeing with the recent path pattern and current force direction.
+
+
+5) What is being controlled?
+
+They control the virtual damping matrix in admittance control.
+
+Basic admittance model:
+M_d * X_ddot + B_d * X_dot = F_ext
+
+Because this is direct teaching, they set the virtual stiffness to zero.
+
+The final damping is anisotropic:
+- lower damping along intended direction
+- higher damping perpendicular to intended direction
+
+This means:
+- along intended direction: high admittance, easier motion, less effort
+- perpendicular direction: low admittance, harder motion, less sideways error
+
+Important wording correction:
+The paper says lower admittance parameters along the intended direction, but practically they reduce damping along that direction. Lower damping means higher admittance/easier movement.
+
+
+6) Controller structure / logic
+
+Step 1: Direct intention
+Use force magnitude to choose initial damping b_d.
+
+Large force:
+- decrease damping
+- robot becomes more compliant
+
+Small force:
+- increase damping
+- robot becomes more precise
+
+Step 2: Indirect intention estimation
+Use recent motion to estimate K_hat and beta_hat in the velocity-curvature power law.
+
+Then use minimum-jerk-based local optimization to estimate intended acceleration.
+
+Step 3: Intended force and guidance
+Use intended acceleration to compute intended force.
+
+Use the intended force direction as the intended direction.
+
+Rotate the damping matrix so that:
+- x-axis aligns with intended direction
+- y-axis is perpendicular to intended direction
+
+Then set:
+- low damping along x/intended direction
+- high damping along y/perpendicular direction
+
+Result:
+The robot helps the human continue along the likely intended path while resisting sideways deviation.
+
+
+============================================================
+KEY EQUATIONS, INTUITIVE MEANING
+============================================================
+
+Eq. 1: Full admittance model
+
+M_d(X_ddot - X0_ddot) + B_d(X_dot - X0_dot) + K_d(X - X0) = F_ext
+
+Meaning:
+A virtual mass-spring-damper system maps human force to robot motion.
+
+X0 is the equilibrium/reference position.
+X0_dot is the reference velocity.
+X0_ddot is the reference acceleration.
+
+
+Eq. 2: Direct-teaching admittance model
+
+M_d X_ddot + B_d X_dot = F_ext
+
+Meaning:
+No virtual spring/reference path. The human force directly generates robot motion through virtual mass and damping.
+
+
+Eq. 3: Minimum-jerk model
+
+min integral of squared jerk over time
+
+Meaning:
+Human motion tends to avoid sudden changes in acceleration. The selected motion is the one with smoother acceleration changes.
+
+
+Eq. 4: Velocity-curvature power law
+
+v = K * kappa^(-beta)
+
+Meaning:
+Humans tend to move slower in high-curvature regions and faster in straighter regions.
+
+Higher curvature means tighter turn.
+Lower speed in turns is expected.
+
+
+Eq. 6: Spectrum of power laws
+
+beta depends on the path's curvature frequency nu.
+
+Meaning:
+Different path geometries produce different beta values. The exponent is not always exactly 1/3.
+
+Examples:
+- circle: constant curvature, beta approximately 0
+- ellipse: classic beta around 1/3
+- square-like/squircle path: beta around 0.176
+
+
+Eq. 9: Least-squares estimation
+
+They take log of the power law:
+log(v) = log(K) - beta * log(kappa)
+
+Then fit a line using recent data to estimate:
+- K_hat
+- beta_hat
+
+
+Eq. 10: Local intended acceleration optimization
+
+Meaning:
+Find the next acceleration that is smooth, follows the power-law constraint, and stays consistent with force/velocity direction.
+
+This is the core indirect-intention estimation step.
+
+
+Eq. 11: Intended force
+
+F_hat_intended = m_d * v_dot_d + damping-related term
+
+Meaning:
+Once intended acceleration is estimated, they compute a force direction that represents where the human likely wants to go.
+
+
+Eq. 12-14: Anisotropic damping matrix
+
+They create a damping matrix with:
+- low damping along intended direction
+- high damping perpendicular to intended direction
+
+Then they rotate this damping matrix into the robot base frame.
+
+Meaning:
+The robot becomes easy to move along the predicted path and resistant to sideways error.
+
+
+============================================================
+ASSUMPTIONS
+============================================================
+
+Main assumptions:
+
+1) The task is planar 2D motion.
+
+2) Human hand motion approximately follows minimum-jerk behavior.
+
+3) Human movement shows velocity-curvature power-law patterns.
+
+4) Recent trajectory contains useful information about the human's next intended direction.
+
+5) Force magnitude can represent direct intention:
+- large force = fast motion intention
+- small force = precision intention
+
+6) The robot's internal position/velocity controller tracks commands well enough.
+
+7) Human motion frequency content is limited.
+They assume relevant human motion is roughly within 0.5-5 Hz and use a 5 Hz low-pass Butterworth filter.
+
+
+============================================================
+EXPERIMENT SETUP
+============================================================
+
+Hardware:
+- 6-DOF JAKA ZU7 robot
+- force/torque sensor mounted at the end effector
+- laser pointer for visual feedback
+- horizontal-plane motion
+- sampling rate: 125 Hz
+
+Task:
+Subjects drag the robot along a reference path containing:
+- circular segment
+- square segment
+- connecting straight-line segments
+
+Subjects:
+- 15 healthy subjects
+
+Controllers compared:
+1. Fixed admittance control
+2. Isotropic variable admittance control
+3. FVAC
+4. Const. Rc
+5. Proposed controller
+
+
+============================================================
+METRICS
+============================================================
+
+1) Accuracy
+Measured by average trajectory error between the robot path and the reference path.
+
+Lower error = better accuracy.
+
+2) Smoothness
+Measured by dimensionless squared jerk (DSJ).
+
+Lower DSJ = smoother motion.
+
+3) Effort
+Measured by mean interaction force.
+
+Lower mean force = less human effort.
+
+4) Task time
+Time required to complete the task.
+
+
+============================================================
+LIMITATIONS / CRITICAL POINTS
+============================================================
+
+1) Only validated in 2D planar motion.
+
+They mention possible extension to 3D, but they do not experimentally validate it.
+
+2) Curvature estimation can be noise-sensitive.
+
+Velocity and acceleration are obtained from numerical differentiation, which can amplify noise.
+
+3) Several parameters are manually selected.
+
+Examples:
+- f_min
+- f_max
+- damping range
+- N = 50 least-squares window
+- 5 Hz cutoff frequency
+
+4) Intuitiveness is mostly inferred from objective metrics.
+
+They use accuracy, smoothness, and force as evidence. They do not deeply analyze subjective user perception of intuitiveness.
+
+5) Stability/passivity is not rigorously proven.
+
+The paper mainly validates the method through offline simulation and online human experiments.
+
+6) The method assumes recent motion predicts future intention.
+
+This can fail if the human suddenly changes direction or intention.
+
+
+============================================================
+ONE-SENTENCE SUMMARY
+============================================================
+
+The paper proposes a training-free variable admittance controller that estimates human direct intention from force magnitude and indirect intention from velocity-curvature/minimum-jerk motion patterns, then lowers damping along the estimated intended direction and increases damping sideways to improve accuracy, smoothness, and effort in pHRI direct teaching.
