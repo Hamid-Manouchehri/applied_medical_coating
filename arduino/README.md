@@ -80,20 +80,31 @@ Connect the robot `DO0` signal to the Arduino input pin:
 | DO0 signal          | Pin 8             |
 | DO0 / signal ground | GND               |
 
-The DO0 sketch assumes `DO0` is active when Arduino pin 8 reads `HIGH`:
+The DO0 sketch uses Arduino internal pull-up by default:
 
 ```cpp
-const bool DO0_ACTIVE_HIGH = true;
+const bool USE_INTERNAL_PULLUP = true;
 ```
 
-If your wiring gives `LOW` when `DO0` is active, change it to:
+With this setting, the input pin is normally `HIGH`. The motor starts when
+the robot output pulls Arduino pin 8 to `GND`, so active is `LOW`:
 
 ```cpp
 const bool DO0_ACTIVE_HIGH = false;
 ```
 
+If your interface gives `HIGH` when `DO0` is active, change it to:
+
+```cpp
+const bool DO0_ACTIVE_HIGH = true;
+```
+
 Important: connect the robot signal ground to Arduino `GND`, unless your
 interface uses an isolated relay/contact module.
+
+Do not connect a 24 V robot output directly to an Arduino input pin. Use an
+isolated relay, optocoupler, or voltage-level interface if the xArm output
+is 24 V.
 
 ## Motor Wiring
 
@@ -193,6 +204,15 @@ Then:
 6. The motor should rotate while `DO0` is active.
 7. Deactivate robot `DO0`.
 8. The motor should stop.
+
+For the DO0 sketch, open Arduino Serial Monitor at `9600` baud. It prints:
+
+```text
+DO0 raw = ...
+DO0 active = ...
+```
+
+This tells you whether Arduino is actually seeing the xArm signal.
 
 ## Adjust Speed
 

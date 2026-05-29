@@ -3,7 +3,8 @@
 
   This program sends STEP and DIR signals from the Arduino Mega 2560 to
   a TB6600 stepper motor driver. The motor runs only when the robot DO0
-  signal is active at the Arduino input pin.
+  signal is active at the Arduino input pin. It keeps moving continuously
+  while DO0 is active.
 
   Inputs:
     DO0_INPUT_PIN: digital signal from robot DO0.
@@ -30,11 +31,14 @@ const int ENABLE_PIN               = 4;
 // TODO: Connect robot DO0 signal here. Feasible range is digital pins.
 const int DO0_INPUT_PIN            = 8;
 
-// TODO: Set false if robot DO0 gives LOW when active.
-const bool DO0_ACTIVE_HIGH         = true;
+// TODO: Use true if DO0 acts like a switch to GND.
+const bool USE_INTERNAL_PULLUP     = true;
 
-// TODO: Set false if your TB6600 enable logic is opposite.
-const bool ENABLE_ACTIVE_LOW       = false;
+// TODO: With INPUT_PULLUP, active is usually LOW.
+const bool DO0_ACTIVE_HIGH         = false;
+
+// TODO: This should match the working PC-controlled sketch.
+const bool ENABLE_ACTIVE_LOW       = true;
 
 // TODO: Use larger values for slower speed and easier first testing.
 const unsigned int STEP_DELAY_US   = 800;
@@ -42,29 +46,47 @@ const unsigned int STEP_DELAY_US   = 800;
 // TODO: Motor direction while DO0 is active.
 const bool MOTOR_DIRECTION_HIGH    = true;
 
+// TODO: Serial Monitor baud rate.
+const unsigned long SERIAL_BAUD    = 9600;
+
+bool previous_do0_active           = false;
+unsigned long previous_print_ms    = 0;
+
 
 void setup()
 {
+  Serial.begin(SERIAL_BAUD);
+
   pinMode(STEP_PIN, OUTPUT);
   pinMode(DIR_PIN, OUTPUT);
   pinMode(ENABLE_PIN, OUTPUT);
-  pinMode(DO0_INPUT_PIN, INPUT);
+
+  if (USE_INTERNAL_PULLUP) {
+    pinMode(DO0_INPUT_PIN, INPUT_PULLUP);
+  }
+  else {
+    pinMode(DO0_INPUT_PIN, INPUT);
+  }
 
   digitalWrite(STEP_PIN, LOW);
   digitalWrite(DIR_PIN, MOTOR_DIRECTION_HIGH);
-  disableDriver();
+  enableDriver();
+
+  Serial.println("Arduino Mega 2560 TB6600 DO0 control ready.");
+  Serial.println("Motor moves while DO0 is active.");
 }
 
 
 void loop()
 {
-  if (isDo0Active()) {
-    enableDriver();
+  bool read_do0_active = isDo0Active();
+  printDo0Status(read_do0_active);
+
+  if (read_do0_active) {
     moveStepperOneStep();
   }
   else {
     digitalWrite(STEP_PIN, LOW);
-    disableDriver();
   }
 }
 
@@ -100,6 +122,27 @@ bool isDo0Active()
   }
 
   return read_do0_value == LOW;
+}
+
+
+void printDo0Status(bool read_do0_active)
+{
+  unsigned long current_time_ms = millis();
+
+  if (read_do0_active != previous_do0_active) {
+    Serial.print("DO0 active = ");
+    Serial.println(read_do0_active);
+    previous_do0_active = read_do0_active;
+    previous_print_ms = current_time_ms;
+  }
+
+  if (current_time_ms - previous_print_ms >= 1000) {
+    Serial.print("DO0 raw = ");
+    Serial.print(digitalRead(DO0_INPUT_PIN));
+    Serial.print(", DO0 active = ");
+    Serial.println(read_do0_active);
+    previous_print_ms = current_time_ms;
+  }
 }
 
 
