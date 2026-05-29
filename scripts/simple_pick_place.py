@@ -23,16 +23,16 @@ from xarm.wrapper import XArmAPI
 # TODO: Change this to the IP address shown on the xArm controller.
 ROBOT_IP = "192.168.1.200"
 
-# TODO: Change after checking workspace. (q1, q2, q3, q4, q5, q6)
+# TODO: Change after checking workspace. (q1, q2, q3, q4, q5, q6) deg
 SAFE_START_ANGLES = [-1.4, -13.5, -60.2, 0.0, 73.5, -90.0]
 
-# TODO: Change cycle 1 positions for your table/object. (x,y,z,Rx,Ry,Rz)
+# TODO: Change cycle 1 positions for your table/object. (x,y,z,Rx,Ry,Rz) mm & deg
 PICK_1_ABOVE_POSE  = [411.2, -10, 520.0, 180.0, 0.0, 90.0]
 PICK_1_POSE        = [411.2, -10, 373, 180.0, 0.0, 90.0]
 PLACE_1_ABOVE_POSE = [300, -10, 520.0, 180.0, 0.0, 90.0]
 PLACE_1_POSE       = [300, -10, 373, 180.0, 0.0, 90.0]
 
-# TODO: Change cycle 2 positions for your second object/location. (x,y,z,Rx,Ry,Rz)
+# TODO: Change cycle 2 positions for your second object/location. (x,y,z,Rx,Ry,Rz) mm & deg
 PICK_2_ABOVE_POSE  = [411.2, 24.5, 520.0, 180.0, 0.0, 90.0]
 PICK_2_POSE        = [411.2, 24.5, 373, 180.0, 0.0, 90.0]
 PLACE_2_ABOVE_POSE = [300, 24.5, 520.0, 180.0, 0.0, 90.0]

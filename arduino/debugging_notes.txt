@@ -1,0 +1,227 @@
+Arduino Mega 2560 + TB6600 + xArm DO0 Debug Notes
+==================================================
+
+Goal
+----
+
+Use xArm DO0 to start and stop a stepper motor through Arduino.
+
+Hardware used
+-------------
+
+Arduino Mega 2560
+TB6600 stepper motor driver
+Stepper motor
+xArm 6 controller DO0 signal
+
+Main Arduino pins
+-----------------
+
+STEP_PIN   = 3
+DIR_PIN    = 2
+ENABLE_PIN = 4
+DO0 input  = 8
+
+Important safety note
+---------------------
+
+Arduino digital input pins are 5 V maximum.
+Do not connect 24 V directly to Arduino D8.
+Use a relay, optocoupler, or level shifter if DO0 is 24 V.
+
+Step 1: Confirm PC-controlled motor sketch
+------------------------------------------
+
+First, we kept a simple PC-upload sketch.
+That sketch runs without xArm DO0 control.
+It rotates forward, pauses, rotates backward, and repeats.
+
+This confirmed:
+
+TB6600 motor wiring works.
+Stepper motor power works.
+STEP and DIR pins work.
+Arduino can drive the TB6600.
+
+Working PC sketch settings
+--------------------------
+
+STEP_PIN          = 3
+DIR_PIN           = 2
+ENABLE_PIN        = 4
+ENABLE_ACTIVE_LOW = true
+STEP_DELAY_US     = 800
+STEPS_PER_MOVE    = 1600
+
+Step 2: Create DO0 read-only test
+---------------------------------
+
+We created a separate simple sketch only for reading xArm DO0.
+
+File:
+
+arduino/test_xarm_do0_read/test_xarm_do0_read.ino
+
+Wiring:
+
+Arduino D8  <- xArm DO0 signal
+Arduino GND <- xArm GND
+
+The sketch prints the raw Arduino D8 value in Serial Monitor.
+
+Serial Monitor baud rate:
+
+9600
+
+Expected output while toggling DO0 in UFactory Studio:
+
+D8 raw value changed to: 0
+D8 raw value changed to: 1
+
+Step 3: Use INPUT_PULLUP for DO0
+--------------------------------
+
+The DO0 read test worked with internal pull-up logic.
+
+Important settings:
+
+USE_INTERNAL_PULLUP = true
+DO0_ACTIVE_HIGH     = false
+
+Meaning:
+
+Arduino D8 is normally HIGH.
+xArm DO0 active pulls Arduino D8 LOW.
+Arduino treats LOW as active.
+
+Step 4: First DO0 motor sketch issue
+------------------------------------
+
+The Arduino could read xArm DO0.
+But the motor did not move.
+
+So the DO0 input was probably not the problem anymore.
+
+Step 5: Compare with the working PC sketch
+------------------------------------------
+
+The working PC sketch used:
+
+ENABLE_ACTIVE_LOW = true
+
+The DO0 sketch had:
+
+ENABLE_ACTIVE_LOW = false
+
+That mismatch could stop the TB6600 from enabling.
+
+Step 6: Fix enable behavior
+---------------------------
+
+We changed the DO0 motor sketch to:
+
+ENABLE_ACTIVE_LOW = true
+
+This matches the working PC-controlled sketch.
+
+Step 7: Keep TB6600 enabled
+---------------------------
+
+We stopped enabling and disabling the driver inside loop().
+
+New behavior:
+
+Enable the TB6600 once in setup().
+Only send step pulses while DO0 is active.
+Stop sending step pulses while DO0 is inactive.
+
+Final DO0 motor logic
+---------------------
+
+if DO0 is active:
+    send one step pulse
+else:
+    keep STEP pin LOW
+
+In code:
+
+if (read_do0_active) {
+  moveStepperOneStep();
+}
+else {
+  digitalWrite(STEP_PIN, LOW);
+}
+
+Final DO0 sketch settings
+-------------------------
+
+STEP_PIN            = 3
+DIR_PIN             = 2
+ENABLE_PIN          = 4
+DO0_INPUT_PIN       = 8
+USE_INTERNAL_PULLUP = true
+DO0_ACTIVE_HIGH     = false
+ENABLE_ACTIVE_LOW   = true
+STEP_DELAY_US       = 800
+SERIAL_BAUD         = 9600
+
+Final expected behavior
+-----------------------
+
+Upload the DO0 motor sketch.
+Open Serial Monitor at 9600 baud.
+Toggle xArm DO0 in UFactory Studio.
+
+When Serial Monitor shows:
+
+DO0 active = 1
+
+the stepper motor should move continuously.
+
+When xArm DO0 is off:
+
+DO0 active = 0
+
+the stepper motor should stop.
+
+Files involved
+--------------
+
+PC-controlled motor test:
+
+arduino/pc_to_mega2560_tb6600_stepper/
+pc_to_mega2560_tb6600_stepper.ino
+
+DO0 read-only test:
+
+arduino/test_xarm_do0_read/test_xarm_do0_read.ino
+
+DO0-controlled motor sketch:
+
+arduino/mega2560_tb6600_stepper_do0/
+mega2560_tb6600_stepper_do0.ino
+
+Useful debugging order for next time
+------------------------------------
+
+1. Run PC-controlled sketch first.
+2. Confirm motor moves without xArm.
+3. Run DO0 read-only sketch.
+4. Confirm Arduino reads DO0 in Serial Monitor.
+5. Run DO0-controlled motor sketch.
+6. Confirm Serial Monitor shows DO0 active = 1.
+7. If active is 1 but motor does not move, check TB6600 wiring.
+8. If active never changes, check DO0 wiring and input logic.
+
+Common causes of failure
+------------------------
+
+Arduino D8 receiving wrong voltage.
+Robot DO0 signal ground not connected to Arduino GND.
+Wrong active logic for DO0.
+Wrong enable polarity for TB6600.
+STEP and DIR wires swapped.
+PUL+ or PUL- connected wrong.
+TB6600 motor power off.
+Stepper coil pairs wired incorrectly.
+STEP_DELAY_US too small for first test.
