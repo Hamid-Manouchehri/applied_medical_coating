@@ -30,7 +30,7 @@ from xarm.wrapper import XArmAPI
 ROBOT_IP = "192.168.1.200"
 
 # TODO: DI1 is 9. Feasible range is 8 to 15 for DI0 to DI7.
-CONTROLLER_DI1_NUMBER = 9
+CONTROLLER_DI1_NUMBER = 8
 
 # TODO: Set to 1 if your sensor/input is high when triggered.
 DI1_TRIGGER_VALUE = 0
@@ -276,7 +276,10 @@ class PickPlaceOnDi1Robot:
         if not self.set_gripper_open():
             return False
 
-        return self.move_to_pose(PLACE_ABOVE_POSE, "move_up_from_place")
+        if not self.move_to_pose(PLACE_ABOVE_POSE, "move_up_from_place"):
+            return False
+
+        return self.move_to_pose(PICK_ABOVE_POSE, "return_pick_above")
 
     def run(self):
         """Run pick-and-place each time DI1 is triggered."""
