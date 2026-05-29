@@ -66,3 +66,11 @@ conda activate ufac_env
 ```
 python ~/projects/applied_medical_coating/scripts/script_name.py
 ```
+
+
+## Arduino
+
+* open the arduino ide:
+```
+~/softwares/arduino_ide/arduino-ide_2.3.9_Linux_64bit.AppImage  --no-sandbox
+```
