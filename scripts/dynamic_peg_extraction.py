@@ -72,11 +72,11 @@ PLACE_POSE       = [187, 320, 425.0, 180.0, 0.0, 90.0]
 GRIPPER_OPEN_POSITION = 280
 GRIPPER_CLOSED_POSITION = 0
 
-TCP_SPEED = 800
-TCP_ACCELERATION = 5000
+TCP_SPEED = 1000
+TCP_ACCELERATION = 10000
 ANGLE_SPEED = 20
 ANGLE_ACCELERATION = 500
-GRIPPER_SPEED = 7000
+GRIPPER_SPEED = 10000
 
 # xArm gripper payload only. Update if you know your real tool payload.
 GRIPPER_MASS_KG = 0.82
@@ -344,6 +344,7 @@ class PickPlaceOnDi1Robot:
             speed=GRIPPER_SPEED,
             auto_enable=True,
         )
+        # time.sleep(0.3)
         return self.check_code(code, "set_gripper_open")
 
     def set_gripper_closed(self):
@@ -354,6 +355,7 @@ class PickPlaceOnDi1Robot:
             speed=GRIPPER_SPEED,
             auto_enable=True,
         )
+        # time.sleep(0.3)
         return self.check_code(code, "set_gripper_closed")
 
     def move_to_pose(self, pose, label):

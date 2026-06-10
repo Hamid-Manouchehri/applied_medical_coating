@@ -44,7 +44,7 @@ const bool XARM_OUTPUT_ACTIVE_HIGH = false;
 const bool ENABLE_ACTIVE_LOW       = true;
 
 // TODO: Use larger values for slower speed and easier first testing.
-const unsigned int STEP_DELAY_US   = 800;
+const unsigned int STEP_DELAY_US   = 350;
 
 // TODO: Direction pin value when DO0 is active.
 const bool DO0_ACTIVE_DIR_HIGH     = true;

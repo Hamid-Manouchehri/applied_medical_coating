@@ -39,7 +39,10 @@ If ping does not work, check the Ethernet cable, network settings, robot IP,
 and whether the controller is powered on.
 
 ```
-sudo ~/softwares/UFactory$ sudo ./UfactoryStudio-Linux-1.0.1.AppImage --no-sandbox
+cd ~/softwares/UFactory
+```
+```
+sudo ./UfactoryStudio-Linux-1.0.1.AppImage --no-sandbox
 ```
 
 enter the follwoing IP address:
@@ -82,6 +85,11 @@ python ~/projects/applied_medical_coating/scripts/script_name.py
 ## Arduino
 
 Arduino in this setup generates PWM pulse for the motor (stepper motor driver), also it reads from XArm6 controller in such a way if the output (DO0 & DO1) got triggered (through UFactory Studio) it start/stop and change the direction. for that compile and upload `mega2560_tb6600_stepper.ino`.
+
+| XArm Controller IO | Linear Mechanism   |
+| ------------------ | ------------------ |
+| DO0                | forward / backward |
+| DO1                | start / stop       |
 
 ## Python
 A python script takes care of trajectory plannign and dynamic grasping: `dynamic_peg_extraction.py`.
