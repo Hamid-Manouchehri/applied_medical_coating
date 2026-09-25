@@ -104,3 +104,9 @@ def function_name(args):
 - Important decisions already made: [FILL-IN]
 - Open questions: [FILL-IN]
 - Next tasks: [FILL-IN] -->
+
+
+## Version control
+
+- Before doing (major) modifications, do git push (localy) after asking for permission, also suggest an appropriate commit message.
+- Make branches if needed based on the prompt after asking for permission, and name the branch properly.
