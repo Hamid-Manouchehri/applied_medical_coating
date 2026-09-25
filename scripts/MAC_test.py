@@ -14,19 +14,45 @@ You define your own named via points and gripper positions in the
 in any order you want inside run_sequence(). Nothing here forces a
 fixed pick-and-place shape.
 
+Two controller digital inputs, each wired to a physical pushbutton,
+control when run_sequence() executes:
+
+    DI0 button (start/stop toggle):
+        Stopped -> pressed -> robot re-enables and run_sequence()
+                               starts (once, or repeating - see
+                               LOOP_SEQUENCE_FOREVER below).
+        Running or paused -> pressed -> robot stops immediately.
+
+    DI1 button (pause/resume toggle):
+        Running -> pressed -> pauses immediately, even mid-move.
+        Paused  -> pressed -> resumes immediately from where it
+                               paused.
+        Ignored if the robot is stopped.
+
 Inputs:
     Robot connection through ROBOT_IP.
     Joint-space via points in degrees.
     Gripper positions (device units, 0 = closed).
-    Keyboard key "q", pressed at any time, to stop the script.
+    Controller digital input DI0, start/stop pushbutton.
+    Controller digital input DI1, pause/resume pushbutton.
+    Keyboard key "q", pressed at any time, to quit the whole script.
 
 Outputs:
     Robot motion and gripper commands sent to the xArm 6.
 
 Important:
-    Pressing q calls set_state(4), which can interrupt a move that is
-    already in progress. The script then stops cleanly instead of
-    continuing to the next action.
+    Both the stop button and q call set_state(4), which can interrupt
+    a move that is already in progress and cannot be resumed - after
+    a stop, run_sequence() starts over from the top.
+
+    Pause uses the xArm's own pause state, set_state(3). This
+    interrupts a move immediately, mid-trajectory, and resume
+    (set_state(0)) continues that same move from where it paused -
+    unlike stop, nothing is lost or restarted.
+
+    q quits the whole script. The stop button only stops the current
+    run; pressing start/stop again re-enables the robot and starts
+    run_sequence() again without needing to restart the script.
 """
 
 import select
@@ -47,9 +73,9 @@ ROBOT_IP = "192.168.1.200"
 
 # TODO: Joint-space via points, (q1, q2, q3, q4, q5, q6) in degrees.
 # Add, remove, or rename these freely, then use them in run_sequence().
-VIA_HOME = [3.2, -10.5, -90.5, 0.0, 101, -87.0]
-VIA_POINT_1 = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-VIA_POINT_2 = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+VIA_HOME = [2.6, -43.0, -42.0, 0.0, 84.0, 6.0]
+VIA_POINT_1 = [2.6, -40.0, -53.0, 0.0, 90.0, 5.0]
+VIA_POINT_2 = [50.8, -12.0, -57.0, 75.0, 89.0, 5.0]
 
 # TODO: Gripper positions, device units. Typically 0 (closed) up to
 # about 850 (fully open) for the xArm gripper. Use any value you want.
@@ -73,6 +99,32 @@ GRIPPER_CENTER_OF_MASS_MM = [0, 0, 48]
 # faster, larger uses less CPU.
 KEYBOARD_READ_INTERVAL_SECONDS = 0.05
 
+# TODO: Set True to repeat run_sequence() until stopped/paused/quit.
+# Set False to run run_sequence() once per start button press.
+LOOP_SEQUENCE_FOREVER = True
+
+# TODO: DI0 is 8. Feasible range is 8 to 15 for DI0 to DI7.
+CONTROLLER_DI0_NUMBER = 8
+
+# TODO: DI1 is 9. Feasible range is 8 to 15 for DI0 to DI7.
+CONTROLLER_DI1_NUMBER = 9
+
+# TODO: Set to 1 if the DI0 button reads high when pressed.
+DI0_BUTTON_VALUE = 0
+
+# TODO: Set to 1 if the DI1 button reads high when pressed.
+DI1_BUTTON_VALUE = 0
+
+# TODO: Time between digital input reads, in seconds. Also used as
+# the idle/pause wait step, and doubles as simple button debounce.
+DIGITAL_READ_INTERVAL_SECONDS = 0.1
+
+
+# Robot run states used by the start/stop and pause/resume buttons.
+STATE_STOPPED = "stopped"
+STATE_RUNNING = "running"
+STATE_PAUSED = "paused"
+
 
 def read_keyboard_key():
     """Read one keyboard key without blocking, or "" if none waiting."""
@@ -85,14 +137,18 @@ def read_keyboard_key():
 
 
 class ModularRobot:
-    """Via-point and gripper actions you call in any order. Press q to
-    stop."""
+    """Via-point and gripper actions you call in any order.
+
+    DI0 starts/stops, DI1 pauses/resumes, q quits."""
 
     def __init__(self, arm):
         self.alive = True
         self.arm = arm
+        self.state = STATE_STOPPED
         self.quit_requested = False
+        self.stop_button_active = False
         self.keyboard_monitor_running = False
+        self.button_monitor_running = False
         self.robot_init()
 
     def robot_init(self):
@@ -122,8 +178,8 @@ class ModularRobot:
     def state_changed_callback(self, data):
         """Stop the script if the robot enters state 4."""
         if data and data["state"] == 4:
-            if self.quit_requested:
-                self.print_message("state=4 from q stop.")
+            if self.stop_button_active or self.quit_requested:
+                self.print_message("state=4 from stop button or q.")
                 return
 
             self.alive = False
@@ -182,7 +238,7 @@ class ModularRobot:
             return self.arm.state < 4
         return False
 
-    # --- Keyboard "q to stop" ---
+    # --- Keyboard "q to quit" ---
 
     def start_keyboard_monitor(self):
         """Start the background thread that watches for q."""
@@ -194,24 +250,118 @@ class ModularRobot:
         monitor_thread.start()
 
     def keyboard_monitor_loop(self):
-        """Stop the robot the moment q is pressed, even mid-move."""
+        """Quit the whole script the moment q is pressed."""
         while self.keyboard_monitor_running and self.arm.connected:
             key = read_keyboard_key()
 
             if key == "q":
-                self.print_message("q pressed. Stopping.")
+                self.print_message("q pressed. Quitting.")
                 self.quit_requested = True
+                self.state = STATE_STOPPED
                 self.keyboard_monitor_running = False
                 self.arm.set_state(4)
                 return
 
             time.sleep(KEYBOARD_READ_INTERVAL_SECONDS)
 
+    # --- Start/stop and pause/resume buttons ---
+
+    def read_digital_input(self, input_number, input_name):
+        """Read one controller digital input."""
+        code, read_value = self.arm.get_cgpio_digital(input_number)
+
+        if code != 0:
+            self.print_message(
+                "{} read failed, code={}".format(input_name, code)
+            )
+            return None
+
+        return read_value
+
+    def handle_start_stop_button(self):
+        """Toggle between stopped and running."""
+        if self.state == STATE_STOPPED:
+            self.print_message("Start/stop button pressed. Starting.")
+            self.state = STATE_RUNNING
+        else:
+            self.print_message("Start/stop button pressed. Stopping.")
+            self.stop_button_active = True
+            self.state = STATE_STOPPED
+            self.arm.set_state(4)
+
+    def handle_pause_resume_button(self):
+        """Toggle between running and paused.
+
+        Uses the xArm's own pause state (set_state(3)/set_state(0))
+        so the effect is immediate, even in the middle of a move,
+        instead of waiting for the current via point to finish.
+        """
+        if self.state == STATE_RUNNING:
+            self.print_message("Pause/resume button pressed. Pausing.")
+            self.state = STATE_PAUSED
+            self.arm.set_state(3)
+        elif self.state == STATE_PAUSED:
+            self.print_message("Pause/resume button pressed. Resuming.")
+            self.state = STATE_RUNNING
+            self.arm.set_state(0)
+        else:
+            self.print_message(
+                "Pause/resume button pressed while stopped. Ignored."
+            )
+
+    def start_button_monitor(self):
+        """Start the background thread that watches both buttons."""
+        self.button_monitor_running = True
+        monitor_thread = threading.Thread(
+            target=self.button_monitor_loop,
+            daemon=True,
+        )
+        monitor_thread.start()
+
+    def button_monitor_loop(self):
+        """Watch DI0 and DI1 and trigger a toggle on each new press."""
+        previous_di0_value = self.read_digital_input(
+            CONTROLLER_DI0_NUMBER, "DI0"
+        )
+        previous_di1_value = self.read_digital_input(
+            CONTROLLER_DI1_NUMBER, "DI1"
+        )
+
+        while self.button_monitor_running and self.arm.connected:
+            di0_value = self.read_digital_input(
+                CONTROLLER_DI0_NUMBER, "DI0"
+            )
+            di1_value = self.read_digital_input(
+                CONTROLLER_DI1_NUMBER, "DI1"
+            )
+
+            di0_just_pressed = (
+                di0_value == DI0_BUTTON_VALUE
+                and previous_di0_value != DI0_BUTTON_VALUE
+            )
+            di1_just_pressed = (
+                di1_value == DI1_BUTTON_VALUE
+                and previous_di1_value != DI1_BUTTON_VALUE
+            )
+
+            if di0_just_pressed:
+                self.handle_start_stop_button()
+
+            if di1_just_pressed:
+                self.handle_pause_resume_button()
+
+            previous_di0_value = di0_value
+            previous_di1_value = di1_value
+            time.sleep(DIGITAL_READ_INTERVAL_SECONDS)
+
     # --- Building blocks: call these in any order in run_sequence() ---
+    # Note: no pause check is needed here. self.arm.set_state(3)/(0)
+    # (see handle_pause_resume_button) pauses and resumes these SDK
+    # calls directly, whether they are idle or already mid-move.
 
     def move_to_via(self, via_angles, label):
         """Move the robot to one joint-space via point."""
-        if self.quit_requested:
+        if self.quit_requested or self.state == STATE_STOPPED:
             return False
 
         code = self.arm.set_servo_angle(
@@ -221,11 +371,16 @@ class ModularRobot:
             wait=True,
             radius=-1.0,
         )
-        return self.check_code(code, label) and not self.quit_requested
+        move_ok = self.check_code(code, label)
+        return (
+            move_ok
+            and not self.quit_requested
+            and self.state != STATE_STOPPED
+        )
 
     def set_gripper(self, position, label):
         """Move the gripper to any position you choose."""
-        if self.quit_requested:
+        if self.quit_requested or self.state == STATE_STOPPED:
             return False
 
         code = self.arm.set_gripper_position(
@@ -234,7 +389,12 @@ class ModularRobot:
             speed=GRIPPER_SPEED,
             auto_enable=True,
         )
-        return self.check_code(code, label) and not self.quit_requested
+        gripper_ok = self.check_code(code, label)
+        return (
+            gripper_ok
+            and not self.quit_requested
+            and self.state != STATE_STOPPED
+        )
 
     # --- Your sequence ---
 
@@ -253,10 +413,30 @@ class ModularRobot:
             return
         if not self.set_gripper(GRIPPER_OPEN_POSITION, "gripper_open"):
             return
+        if not self.move_to_via(VIA_POINT_1, "via_point_2"):
+            return
         self.move_to_via(VIA_HOME, "via_home")
 
+    def prepare_robot_for_run(self):
+        """Re-enable the robot before run_sequence() starts.
+
+        Runs both on the very first start and on every restart after
+        a stop, so the start/stop button alone is enough to recover.
+        """
+        self.print_message("Preparing robot to start...")
+        self.arm.clean_warn()
+        self.arm.clean_error()
+        self.arm.motion_enable(True)
+        self.arm.set_mode(0)
+        self.arm.set_state(0)
+        time.sleep(1)
+
+        self.alive = True
+        self.stop_button_active = False
+        return True
+
     def run(self):
-        """Set up the robot, watch for q, then run your sequence."""
+        """Watch the buttons and q, running run_sequence() when told."""
         try:
             code = self.arm.set_tcp_load(
                 GRIPPER_MASS_KG,
@@ -266,19 +446,51 @@ class ModularRobot:
                 return
 
             self.start_keyboard_monitor()
-            self.print_message("Running. Press q to stop.")
+            self.start_button_monitor()
+            self.print_message(
+                "Waiting for start/stop button (DI0). Press q to quit."
+            )
 
-            self.run_sequence()
+            while self.arm.connected and not self.quit_requested:
+                if self.state != STATE_RUNNING:
+                    time.sleep(DIGITAL_READ_INTERVAL_SECONDS)
+                    continue
 
-            if self.quit_requested:
-                self.print_message("Stopped by q.")
-            else:
-                self.print_message("Sequence complete.")
+                if not self.prepare_robot_for_run():
+                    self.state = STATE_STOPPED
+                    continue
+
+                while (
+                    self.state != STATE_STOPPED
+                    and not self.quit_requested
+                ):
+                    if self.state == STATE_PAUSED:
+                        time.sleep(DIGITAL_READ_INTERVAL_SECONDS)
+                        continue
+
+                    self.run_sequence()
+
+                    if self.quit_requested or self.state == STATE_STOPPED:
+                        break
+
+                    if not LOOP_SEQUENCE_FOREVER:
+                        self.state = STATE_STOPPED
+                        break
+
+                    self.print_message(
+                        "Sequence complete. Repeating (loop enabled)."
+                    )
+
+                if not self.quit_requested:
+                    self.print_message(
+                        "Stopped. Waiting for start/stop button (DI0)."
+                    )
 
         except Exception as error:
             self.print_message("MainException: {}".format(error))
         finally:
             self.keyboard_monitor_running = False
+            self.button_monitor_running = False
             self.alive = False
             self.arm.release_error_warn_changed_callback(
                 self.error_warn_changed_callback
