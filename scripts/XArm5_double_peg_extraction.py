@@ -18,11 +18,14 @@ Two controller digital inputs, each wired to a physical pushbutton,
 control when run_sequence() executes:
 
     DI0 button (start/stop toggle):
-        Stopped -> pressed -> robot re-enables and run_sequence()
-                               starts (once, or repeating - see
-                               LOOP_SEQUENCE_FOREVER below).
+        Stopped -> pressed -> robot re-enables, moves to
+                               VIA_START_STOP_HOME, then
+                               run_sequence() starts (once, or
+                               repeating - see LOOP_SEQUENCE_FOREVER
+                               below).
         Running or paused -> pressed -> robot decelerates to a stop
-                               (gentler than an abrupt halt).
+                               where it is (gentler than an abrupt
+                               halt) and waits.
 
     DI1 button (pause/resume toggle):
         Running -> pressed -> pauses immediately, even mid-move. The
@@ -60,6 +63,10 @@ Important:
     only real lever is lowering ANGLE_SPEED/ANGLE_ACCELERATION above:
     less speed means less momentum to kill when a pause lands.
 
+    The move to VIA_START_STOP_HOME on start is a straight joint-space
+    move from wherever the robot stopped, so make sure that path is
+    clear (e.g. after a stop in the middle of a peg extraction).
+
     q quits the whole script. The stop button only stops the current
     run; pressing start/stop again re-enables the robot and starts
     run_sequence() again without needing to restart the script.
@@ -88,11 +95,14 @@ ROBOT_IP = "192.168.1.229"
 # Jog the real xArm 5 to each pose in UFactory Studio first and read
 # the actual joint angles back before running this on hardware.
 # Add, remove, or rename these freely, then use them in run_sequence().
-VIA_HOME = [1.3, -1.9, -14.0, 15.8, 91.3]
-VIA_POINT_1 = [1.3, -4.2, -13.8, 18.0, 91.3]
-VIA_POINT_2 = [1.3, -17.6, -14.8, 31.5, 91.3]
-VIA_POINT_3 = [1.1, -2.6, -22.0, 25.8, 91.1]
-VIA_POINT_4 = VIA_POINT_2
+# VIA_START_STOP_HOME is where the robot goes first when the start/stop
+# button starts it, before run_sequence().
+VIA_JOINT_START_STOP_HOME = [1.3, -20.7, -15.2, 35.8, 91.3]
+VIA_JOINT_HOME = [1.3, -2.1, -13.8, 15.8, 91.3]
+VIA_CART_1 = [287.4, 7.4, 157.1, 180.0, 0., -90.]  # [X, Y, Z, R, P, y] in mm and deg
+VIA_CART_2 = [287.3, 7.6, 212, 180.0, 0., -90.]  # [X, Y, Z, R, P, y] in mm and deg
+VIA_JOINT_3 = [1.1, -2.6, -22.0, 25.8, 91.1]
+VIA_JOINT_4 = [1.3, -17.6, -14.8, 31.5, 91.3]
 
 # TODO: Gripper positions, device units. Typically 0 (closed) up to
 # about 850 (fully open) for the xArm gripper. Use any value you want.
@@ -100,10 +110,17 @@ GRIPPER_OPEN_POSITION = 100
 GRIPPER_CLOSED_POSITION = 0
 
 # TODO: Joint speed range is about 0.006 to 229 deg/s.
-ANGLE_SPEED = 200
+ANGLE_SPEED = 50
 
 # TODO: Joint acceleration range is about 0.57 to 1146 deg/s^2.
-ANGLE_ACCELERATION = 500
+ANGLE_ACCELERATION = 100
+
+# TODO: Tool speed of linear moves (move_linear_to_pose), 0.1 to 1000
+# mm/s.
+LINEAR_SPEED = 100
+
+# TODO: Tool acceleration of linear moves, 1 to 50000 mm/s^2.
+LINEAR_ACCELERATION = 1000
 
 # TODO: Change if the gripper closes too slowly or too hard.
 GRIPPER_SPEED = 5000  # range: 0-5k
@@ -422,12 +439,40 @@ class ModularRobot:
         if self.quit_requested or self.state == STATE_STOPPED:
             return False
 
+        self.print_message("Moving to {}: {}".format(label, via_angles))
         code = self.arm.set_servo_angle(
             angle=via_angles,
             speed=ANGLE_SPEED,
             mvacc=ANGLE_ACCELERATION,
             wait=True,
             radius=-1.0,
+        )
+        move_ok = self.check_code(code, label)
+        return (
+            move_ok
+            and not self.quit_requested
+            and self.state != STATE_STOPPED
+        )
+
+    def move_linear_to_pose(self, pose, label):
+        """Move the tool in a straight line (moveL) to a Cartesian pose.
+
+        pose is [x, y, z, roll, pitch, yaw] in mm and degrees, in the
+        robot base frame. On the xArm 5, roll must be 180 and pitch 0.
+        The line starts from wherever the robot is now.
+        """
+        if self.quit_requested or self.state == STATE_STOPPED:
+            return False
+
+        self.print_message(
+            "Moving linearly to {}: {}".format(label, pose)
+        )
+        code = self.arm.set_position(
+            *pose,
+            speed=LINEAR_SPEED,
+            mvacc=LINEAR_ACCELERATION,
+            radius=-1.0,
+            wait=True,
         )
         move_ok = self.check_code(code, label)
         return (
@@ -459,23 +504,22 @@ class ModularRobot:
     def run_sequence(self):
         """Call move_to_via() / set_gripper() here in any order you
         want. This example just demonstrates the pattern."""
-        if not self.move_to_via(VIA_HOME, "via_home"):
+        if not self.set_gripper(GRIPPER_OPEN_POSITION, "gripper_open"):
             return
-        # if not self.move_to_via(VIA_POINT_1, "via_point_1"):
+        # if not self.move_to_via(VIA_JOINT_HOME, "via_home"):
         #     return
+        if not self.move_linear_to_pose(VIA_CART_1, "via_cart_1"):
+            return
         if not self.set_gripper(GRIPPER_CLOSED_POSITION, "gripper_open"):
             return
-        # if not self.set_gripper(GRIPPER_CLOSED_POSITION, "gripper_close"):
-        #     return
-        if not self.move_to_via(VIA_POINT_2, "via_point_2"):
+        if not self.move_linear_to_pose(VIA_CART_2, "via_cart_2"):
             return
-        if not self.move_to_via(VIA_POINT_3, "via_point_2"):
+        if not self.move_to_via(VIA_JOINT_3, "via_point_3"):
             return
         if not self.set_gripper(GRIPPER_OPEN_POSITION, "gripper_open"):
             return
-        if not self.move_to_via(VIA_POINT_4, "via_point_4"):
+        if not self.move_to_via(VIA_JOINT_4, "via_point_4"):
             return
-        # self.move_to_via(VIA_HOME, "via_home")
 
     def prepare_robot_for_run(self):
         """Re-enable the robot before run_sequence() starts.
@@ -517,6 +561,13 @@ class ModularRobot:
                     continue
 
                 if not self.prepare_robot_for_run():
+                    self.state = STATE_STOPPED
+                    continue
+
+                # Start button: go to VIA_JOINT_START_STOP_HOME first.
+                if not self.move_to_via(
+                    VIA_JOINT_START_STOP_HOME, "via_start_stop_home"
+                ):
                     self.state = STATE_STOPPED
                     continue
 
