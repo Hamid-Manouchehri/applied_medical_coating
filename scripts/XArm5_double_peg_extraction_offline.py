@@ -7,22 +7,29 @@ wired to controller digital inputs drive everything:
 
     DI0 button (start/stop toggle):
         Stopped -> pressed -> errors are cleared, the robot is
-                               enabled and run_sequence() starts
-                               (once, or repeating - see
-                               LOOP_SEQUENCE_FOREVER below).
-        Running, paused or homing -> pressed -> robot decelerates
-                               to a stop and waits.
+                               enabled, moves to
+                               VIA_JOINT_START_STOP_HOME, then
+                               run_sequence() starts (once, or
+                               repeating - see LOOP_SEQUENCE_FOREVER
+                               below).
+        Running, paused or moving to the DI2 configuration ->
+                               pressed -> robot decelerates to a stop
+                               where it is and waits.
 
     DI1 button (pause/resume toggle):
         Running -> pressed -> pauses immediately, even mid-move.
         Paused  -> pressed -> resumes from where it paused.
-        Ignored while stopped or homing.
+        Ignored while stopped or moving to the DI2 configuration.
 
-    DI2 button (home):
-        Pressed -> if the robot is moving, it first decelerates to a
-                   stop. Then errors are cleared and it moves to
-                   VIA_HOME (joint space, at HOME_ANGLE_SPEED) and
-                   waits there, stopped. Press DI0 to start again.
+    DI2 button (move to a specific configuration):
+        Pressed -> if the robot is running, it first decelerates to
+                   a stop. Then errors are cleared and it moves to
+                   VIA_JOINT_DI2 (joint space, with its own speed
+                   DI2_ANGLE_SPEED and acceleration
+                   DI2_ANGLE_ACCELERATION) and waits there, stopped.
+                   Press DI0 to start again (it goes to
+                   VIA_JOINT_START_STOP_HOME first). Pressing DI0
+                   during the move stops the robot where it is.
                    The gripper is not touched, so a held peg stays
                    held.
 
@@ -31,12 +38,16 @@ Building blocks you call in any order inside run_sequence():
     move_to_via(via_angles, label)
         Moves the robot to a joint-space via point (q1..q5, degrees).
 
+    move_linear_to_pose(pose, label)
+        Moves the tool in a straight line (moveL) to a Cartesian pose
+        [x, y, z, roll, pitch, yaw] in mm and degrees.
+
     set_gripper(position, label)
         Opens/closes the gripper to any position you choose.
 
 Inputs:
     Controller digital inputs DI0, DI1, DI2 (pushbuttons).
-    Joint-space via points in degrees.
+    Joint-space via points in degrees, Cartesian poses in mm/degrees.
     Gripper positions (device units, 0 = closed).
 
 Outputs:
@@ -48,13 +59,16 @@ Important:
       powered off.
     - If any command fails (robot error, external stop, ...), the run
       ends and the robot stays stopped where it is. Press DI0 to
-      start again or DI2 to go home - both clear errors first.
+      start again or DI2 to move to its configuration - both clear
+      errors first.
     - Stop (DI0) and home (DI2) use set_state(6), a deceleration
       stop. Pause (DI1) uses set_state(3); the firmware has no
       gentler pause, so lowering ANGLE_SPEED / ANGLE_ACCELERATION is
       the only way to soften it.
-    - The home move goes straight to VIA_HOME from wherever the robot
-      stopped. Make sure that path is clear before pressing DI2.
+    - The DI2 move goes straight to VIA_JOINT_DI2, and a start (DI0)
+      first goes straight to VIA_JOINT_START_STOP_HOME, both from
+      wherever the robot is. Make sure that path is clear.
+    - On the xArm 5, Cartesian poses must have roll 180 and pitch 0.
     - In Studio's controller IO settings, DI0, DI1 and DI2 must stay
       "General Input". If one of them gets a built-in function (e.g.
       Offline Task, Manual Mode), the controller reacts to that button
@@ -73,15 +87,20 @@ from xarm.wrapper import XArmAPI
 # Python connects with the robot IP like this, also on the controller.
 ROBOT_IP = "192.168.1.229"
 
-# TODO: Joint-space via points, (q1, q2, q3, q4, q5) in degrees. Jog
-# the xArm 5 to each pose in UFactory Studio and read the angles back.
+# TODO: Via points. Joint-space ones (VIA_JOINT_*) are (q1, q2, q3, q4,
+# q5) in degrees. Cartesian ones (VIA_CART_*) are [x, y, z, roll, pitch,
+# yaw] in mm and degrees (xArm 5: roll 180, pitch 0). Jog the xArm 5 to
+# each pose in UFactory Studio and read the values back.
 # Add, remove, or rename these freely, then use them in run_sequence().
-# VIA_HOME is also where the DI2 home button sends the robot.
-VIA_HOME = [1.3, -1.9, -14.0, 15.8, 91.3]
-VIA_POINT_1 = [1.3, -4.2, -13.8, 18.0, 91.3]
-VIA_POINT_2 = [1.3, -17.6, -14.8, 31.5, 91.3]
-VIA_POINT_3 = [1.1, -2.6, -22.0, 25.8, 91.1]
-VIA_POINT_4 = VIA_POINT_2
+# VIA_JOINT_START_STOP_HOME is where the robot goes first on every
+# start (DI0). VIA_JOINT_DI2 is where the DI2 button sends it.
+VIA_JOINT_START_STOP_HOME = [1.3, -20.7, -15.2, 35.8, 91.3]
+VIA_JOINT_HOME = [1.3, -2.1, -13.8, 15.8, 91.3]
+VIA_JOINT_DI2 = [0.8, -15.5, -77.8, 93.2, 91.0]
+VIA_CART_1 = [287.4, 7.4, 157.1, 180.0, 0.0, -90.0]
+VIA_CART_2 = [287.3, 7.6, 212.0, 180.0, 0.0, -90.0]
+VIA_JOINT_3 = [1.0, 17.4, -34.5, 18.3, 90.9]
+VIA_JOINT_4 = [1.3, -17.6, -14.8, 31.5, 91.3]
 
 # TODO: Gripper positions, device units. Typically 0 (closed) up to
 # about 850 (fully open) for the xArm gripper. Use any value you want.
@@ -89,14 +108,24 @@ GRIPPER_OPEN_POSITION = 100
 GRIPPER_CLOSED_POSITION = 0
 
 # TODO: Joint speed range is about 0.006 to 229 deg/s.
-ANGLE_SPEED = 200
-
-# TODO: Joint speed of the DI2 home move, deg/s. Kept slower than
-# ANGLE_SPEED because home starts from wherever the robot stopped.
-HOME_ANGLE_SPEED = 30
+ANGLE_SPEED = 500
 
 # TODO: Joint acceleration range is about 0.57 to 1146 deg/s^2.
-ANGLE_ACCELERATION = 500
+ANGLE_ACCELERATION = 400
+
+# TODO: Joint speed of the DI2 move, 0.006 to 229 deg/s. Kept apart
+# from ANGLE_SPEED because it starts from wherever the robot stopped.
+DI2_ANGLE_SPEED = 30
+
+# TODO: Joint acceleration of the DI2 move, 0.57 to 1146 deg/s^2.
+DI2_ANGLE_ACCELERATION = 100
+
+# TODO: Tool speed of linear moves (move_linear_to_pose), 0.1 to 1000
+# mm/s.
+LINEAR_SPEED = 100
+
+# TODO: Tool acceleration of linear moves, 1 to 50000 mm/s^2.
+LINEAR_ACCELERATION = 1000
 
 # TODO: Change if the gripper closes too slowly or too hard.
 GRIPPER_SPEED = 5000  # range: 0-5k
@@ -132,7 +161,7 @@ DI2_BUTTON_VALUE = 0
 DIGITAL_READ_INTERVAL_SECONDS = 0.1
 
 # TODO: Longest wait for a deceleration stop to finish before the
-# robot is re-enabled (start or home right after a stop), in seconds.
+# robot is re-enabled (start or DI2 right after a stop), in seconds.
 DECELERATION_STOP_TIMEOUT_SECONDS = 2.0
 
 
@@ -140,12 +169,12 @@ DECELERATION_STOP_TIMEOUT_SECONDS = 2.0
 STATE_STOPPED = "stopped"
 STATE_RUNNING = "running"
 STATE_PAUSED = "paused"
-STATE_HOMING = "homing"
+STATE_DI2_MOVE = "di2_move"
 
 # Controller error codes 19 and 28 both mean "End Module Communication
 # Error" - a gripper RS485 comm glitch, usually a transient wiring/noise
 # blip. These are cleared automatically; any other error stays until
-# DI0 (start) or DI2 (home) is pressed.
+# DI0 (start) or DI2 (move) is pressed.
 RECOVERABLE_ERROR_CODES = (19, 28)
 
 
@@ -158,7 +187,8 @@ def print_message(message):
 class ModularRobot:
     """Via-point and gripper actions, driven by the DI0/DI1/DI2 buttons.
 
-    DI0 starts/stops, DI1 pauses/resumes, DI2 sends the robot home."""
+    DI0 starts/stops, DI1 pauses/resumes, DI2 moves to a set
+    configuration."""
 
     def __init__(self, arm):
         self.alive = True
@@ -207,7 +237,7 @@ class ModularRobot:
             return self.arm.state < 4
         return False
 
-    # --- Buttons: start/stop (DI0), pause/resume (DI1), home (DI2) ---
+    # --- Buttons: start/stop (DI0), pause/resume (DI1), DI2 move ---
 
     def read_digital_input(self, input_number, input_name):
         """Read one controller digital input."""
@@ -255,20 +285,21 @@ class ModularRobot:
                 "Ignored.".format(self.state)
             )
 
-    def handle_home_button(self):
-        """Ask for a home move, stopping the robot gently first.
+    def handle_di2_button(self):
+        """Ask for the DI2 move, stopping a running robot gently first.
 
         The state is set before set_state(6) on purpose: the running
-        sequence then sees STATE_HOMING when its move is interrupted
-        and hands over to go_home() instead of reporting a failure.
+        sequence then sees STATE_DI2_MOVE when its move is interrupted
+        and hands over to go_to_di2_configuration() instead of
+        reporting a failure.
         """
-        if self.state == STATE_HOMING:
-            print_message("Home button pressed. Already homing.")
+        if self.state == STATE_DI2_MOVE:
+            print_message("DI2 pressed. Already moving there.")
             return
 
-        print_message("Home button pressed. Going home.")
+        print_message("DI2 pressed. Going to the DI2 configuration.")
         robot_was_moving = self.state in (STATE_RUNNING, STATE_PAUSED)
-        self.state = STATE_HOMING
+        self.state = STATE_DI2_MOVE
         if robot_was_moving:
             self.arm.set_state(6)
 
@@ -324,14 +355,14 @@ class ModularRobot:
                 self.handle_pause_resume_button()
 
             if di2_just_pressed:
-                self.handle_home_button()
+                self.handle_di2_button()
 
             previous_di0_value = di0_value
             previous_di1_value = di1_value
             previous_di2_value = di2_value
             time.sleep(DIGITAL_READ_INTERVAL_SECONDS)
 
-    # --- Robot preparation and home ---
+    # --- Robot preparation and the DI2 move ---
 
     def wait_for_deceleration_stop(self):
         """Wait until a deceleration stop, set_state(6), has finished.
@@ -351,7 +382,7 @@ class ModularRobot:
     def prepare_robot(self):
         """Clear errors and enable the robot.
 
-        Runs before every start (DI0) and every home move (DI2), so
+        Runs before every start (DI0) and every DI2 move, so
         those buttons also recover the robot after an error or stop.
         """
         self.wait_for_deceleration_stop()
@@ -369,20 +400,29 @@ class ModularRobot:
         )
         return self.check_code(code, "set_tcp_load_gripper")
 
-    def go_home(self):
-        """Move to VIA_HOME (DI2 button), then wait stopped for DI0."""
-        if self.prepare_robot() and self.state == STATE_HOMING:
+    def go_to_di2_configuration(self):
+        """Move to VIA_JOINT_DI2 (DI2), then wait stopped for DI0.
+
+        Uses its own speed and acceleration (DI2_ANGLE_SPEED,
+        DI2_ANGLE_ACCELERATION). The state stays STATE_DI2_MOVE during
+        the move, so pressing DI0 stops the robot where it is (see
+        handle_start_stop_button). The gripper is not touched.
+        """
+        if self.prepare_robot() and self.state == STATE_DI2_MOVE:
+            print_message(
+                "Moving to the DI2 configuration: {}".format(VIA_JOINT_DI2)
+            )
             code = self.arm.set_servo_angle(
-                angle=VIA_HOME,
-                speed=HOME_ANGLE_SPEED,
-                mvacc=ANGLE_ACCELERATION,
+                angle=VIA_JOINT_DI2,
+                speed=DI2_ANGLE_SPEED,
+                mvacc=DI2_ANGLE_ACCELERATION,
                 wait=True,
                 radius=-1.0,
             )
-            if self.check_code(code, "go_home"):
-                print_message("At home. Press DI0 to start.")
+            if self.check_code(code, "di2_configuration"):
+                print_message("At the DI2 configuration. Press DI0.")
 
-        if self.state == STATE_HOMING:
+        if self.state == STATE_DI2_MOVE:
             self.state = STATE_STOPPED
 
     # --- Building blocks: call these in any order in run_sequence() ---
@@ -395,12 +435,34 @@ class ModularRobot:
         if self.state not in (STATE_RUNNING, STATE_PAUSED):
             return False
 
+        print_message("Moving to {}: {}".format(label, via_angles))
         code = self.arm.set_servo_angle(
             angle=via_angles,
             speed=ANGLE_SPEED,
             mvacc=ANGLE_ACCELERATION,
             wait=True,
             radius=-1.0,
+        )
+        move_ok = self.check_code(code, label)
+        return move_ok and self.state in (STATE_RUNNING, STATE_PAUSED)
+
+    def move_linear_to_pose(self, pose, label):
+        """Move the tool in a straight line (moveL) to a Cartesian pose.
+
+        pose is [x, y, z, roll, pitch, yaw] in mm and degrees, in the
+        robot base frame. On the xArm 5, roll must be 180 and pitch 0.
+        The line starts from wherever the robot is now.
+        """
+        if self.state not in (STATE_RUNNING, STATE_PAUSED):
+            return False
+
+        print_message("Moving linearly to {}: {}".format(label, pose))
+        code = self.arm.set_position(
+            *pose,
+            speed=LINEAR_SPEED,
+            mvacc=LINEAR_ACCELERATION,
+            radius=-1.0,
+            wait=True,
         )
         move_ok = self.check_code(code, label)
         return move_ok and self.state in (STATE_RUNNING, STATE_PAUSED)
@@ -412,7 +474,7 @@ class ModularRobot:
 
         code = self.arm.set_gripper_position(
             position,
-            wait=True,
+            wait=False,
             speed=GRIPPER_SPEED,
             auto_enable=True,
         )
@@ -422,31 +484,41 @@ class ModularRobot:
     # --- Your sequence ---
 
     def run_sequence(self):
-        """Call move_to_via() / set_gripper() here in any order you
-        want. This example just demonstrates the pattern."""
-        if not self.move_to_via(VIA_HOME, "via_home"):
+        """Call move_to_via() / move_linear_to_pose() / set_gripper()
+        here in any order you want. This example just demonstrates
+        the pattern."""
+        if not self.set_gripper(GRIPPER_OPEN_POSITION, "gripper_open"):
             return
-        # if not self.move_to_via(VIA_POINT_1, "via_point_1"):
-        #     return
-        if not self.set_gripper(GRIPPER_CLOSED_POSITION, "gripper_open"):
+        if not self.move_linear_to_pose(VIA_CART_1, "via_cart_1"):
             return
-        # if not self.set_gripper(GRIPPER_CLOSED_POSITION, "gripper_close"):
-        #     return
-        if not self.move_to_via(VIA_POINT_2, "via_point_2"):
+        if not self.set_gripper(GRIPPER_CLOSED_POSITION, "gripper_close"):
             return
-        if not self.move_to_via(VIA_POINT_3, "via_point_2"):
+        if not self.move_linear_to_pose(VIA_CART_2, "via_cart_2"):
+            return
+        if not self.move_to_via(VIA_JOINT_3, "via_joint_3"):
             return
         if not self.set_gripper(GRIPPER_OPEN_POSITION, "gripper_open"):
             return
-        if not self.move_to_via(VIA_POINT_4, "via_point_4"):
+        if not self.move_to_via(VIA_JOINT_4, "via_joint_4"):
             return
-        # self.move_to_via(VIA_HOME, "via_home")
 
     def run_until_stopped(self):
         """Run run_sequence() once, or repeatedly, until stopped."""
         if not self.prepare_robot():
             print_message("Could not enable the robot. Press DI0 again.")
             if self.state == STATE_RUNNING:
+                self.state = STATE_STOPPED
+            return
+
+        # Every start goes to VIA_JOINT_START_STOP_HOME first.
+        if not self.move_to_via(
+            VIA_JOINT_START_STOP_HOME, "via_start_stop_home"
+        ):
+            # Not stopped or redirected by a button, so the move failed.
+            if self.state in (STATE_RUNNING, STATE_PAUSED):
+                print_message(
+                    "Could not reach start/stop home. Press DI0 again."
+                )
                 self.state = STATE_STOPPED
             return
 
@@ -458,7 +530,7 @@ class ModularRobot:
 
             self.run_sequence()
 
-            # Stopped (DI0) or homing (DI2) by a button.
+            # Stopped (DI0) or sent to the DI2 configuration by a button.
             if self.state not in (STATE_RUNNING, STATE_PAUSED):
                 return
 
@@ -466,7 +538,7 @@ class ModularRobot:
             if not self.alive:
                 print_message(
                     "Sequence failed. Press DI0 to start again "
-                    "or DI2 to go home."
+                    "or DI2 to move to its configuration."
                 )
                 self.state = STATE_STOPPED
                 return
@@ -481,14 +553,14 @@ class ModularRobot:
     def run(self):
         """Wait for the buttons and do what they ask, forever."""
         self.start_button_monitor()
-        print_message("Ready. DI0 start/stop, DI1 pause, DI2 home.")
+        print_message("Ready. DI0 start/stop, DI1 pause, DI2 move.")
 
         try:
             while self.arm.connected:
                 if self.state == STATE_RUNNING:
                     self.run_until_stopped()
-                elif self.state == STATE_HOMING:
-                    self.go_home()
+                elif self.state == STATE_DI2_MOVE:
+                    self.go_to_di2_configuration()
                 else:
                     time.sleep(DIGITAL_READ_INTERVAL_SECONDS)
         finally:
