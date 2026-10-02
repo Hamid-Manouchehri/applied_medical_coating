@@ -117,18 +117,18 @@ VIA_JOINT_HOME = [1.3, -2.1, -13.8, 15.8, 91.3]
 VIA_CART_1 = [287.4, 7.4, 160.0, 180.0, 0., -90.]  # [X, Y, Z, R, P, y] in mm and deg
 VIA_CART_2 = [287.3, 7.6, 212, 180.0, 0., -90.]  # [X, Y, Z, R, P, y] in mm and deg
 VIA_JOINT_3 = [1.0, 17.4, -34.5, 18.3, 90.9]
-VIA_JOINT_4 = [1.3, -17.6, -14.8, 31.5, 91.3]
+VIA_JOINT_4 = [1.3, -10.5, -14.1, 23.7, 91.3]
 
 # TODO: Gripper positions, device units. Typically 0 (closed) up to
 # about 850 (fully open) for the xArm gripper. Use any value you want.
-GRIPPER_OPEN_POSITION = 100
+GRIPPER_OPEN_POSITION = 80
 GRIPPER_CLOSED_POSITION = 0
 
 # TODO: Joint speed range is about 0.006 to 229 deg/s.
-ANGLE_SPEED = 500
+ANGLE_SPEED = 230
 
 # TODO: Joint acceleration range is about 0.57 to 1146 deg/s^2.
-ANGLE_ACCELERATION = 400
+ANGLE_ACCELERATION = 1000
 
 # TODO: Joint speed of the DI2 move, 0.006 to 229 deg/s. Kept apart
 # from ANGLE_SPEED because it starts from wherever the robot stopped.
@@ -139,10 +139,10 @@ DI2_ANGLE_ACCELERATION = 100
 
 # TODO: Tool speed of linear moves (move_linear_to_pose), 0.1 to 1000
 # mm/s.
-LINEAR_SPEED = 100
+LINEAR_SPEED = 800
 
 # TODO: Tool acceleration of linear moves, 1 to 50000 mm/s^2.
-LINEAR_ACCELERATION = 1000
+LINEAR_ACCELERATION = 30000
 
 # TODO: Change if the gripper closes too slowly or too hard.
 GRIPPER_SPEED = 5000  # range: 0-5k
@@ -589,11 +589,11 @@ class ModularRobot:
             return
         if not self.move_linear_to_pose(VIA_CART_2, "via_cart_2"):
             return
-        if not self.move_to_via(VIA_JOINT_3, "via_point_3"):
+        if not self.move_to_via(VIA_JOINT_3, "via_joint_3"):
             return
         if not self.set_gripper(GRIPPER_OPEN_POSITION, "gripper_open"):
             return
-        if not self.move_to_via(VIA_JOINT_4, "via_point_4"):
+        if not self.move_to_via(VIA_JOINT_4, "via_joint_4"):
             return
 
     def prepare_robot_for_run(self):

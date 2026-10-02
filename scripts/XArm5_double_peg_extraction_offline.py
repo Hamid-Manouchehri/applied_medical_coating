@@ -61,7 +61,7 @@ Important:
       ends and the robot stays stopped where it is. Press DI0 to
       start again or DI2 to move to its configuration - both clear
       errors first.
-    - Stop (DI0) and home (DI2) use set_state(6), a deceleration
+    - Stop (DI0) and the DI2 move use set_state(6), a deceleration
       stop. Pause (DI1) uses set_state(3); the firmware has no
       gentler pause, so lowering ANGLE_SPEED / ANGLE_ACCELERATION is
       the only way to soften it.
@@ -97,21 +97,21 @@ ROBOT_IP = "192.168.1.229"
 VIA_JOINT_START_STOP_HOME = [1.3, -20.7, -15.2, 35.8, 91.3]
 VIA_JOINT_HOME = [1.3, -2.1, -13.8, 15.8, 91.3]
 VIA_JOINT_DI2 = [0.8, -15.5, -77.8, 93.2, 91.0]
-VIA_CART_1 = [287.4, 7.4, 157.1, 180.0, 0.0, -90.0]
+VIA_CART_1 = [287.4, 7.4, 160.0, 180.0, 0.0, -90.0]
 VIA_CART_2 = [287.3, 7.6, 212.0, 180.0, 0.0, -90.0]
 VIA_JOINT_3 = [1.0, 17.4, -34.5, 18.3, 90.9]
-VIA_JOINT_4 = [1.3, -17.6, -14.8, 31.5, 91.3]
+VIA_JOINT_4 = [1.3, -10.5, -14.1, 23.7, 91.3]
 
 # TODO: Gripper positions, device units. Typically 0 (closed) up to
 # about 850 (fully open) for the xArm gripper. Use any value you want.
-GRIPPER_OPEN_POSITION = 100
+GRIPPER_OPEN_POSITION = 80
 GRIPPER_CLOSED_POSITION = 0
 
 # TODO: Joint speed range is about 0.006 to 229 deg/s.
-ANGLE_SPEED = 500
+ANGLE_SPEED = 230
 
 # TODO: Joint acceleration range is about 0.57 to 1146 deg/s^2.
-ANGLE_ACCELERATION = 400
+ANGLE_ACCELERATION = 1000
 
 # TODO: Joint speed of the DI2 move, 0.006 to 229 deg/s. Kept apart
 # from ANGLE_SPEED because it starts from wherever the robot stopped.
@@ -122,10 +122,10 @@ DI2_ANGLE_ACCELERATION = 100
 
 # TODO: Tool speed of linear moves (move_linear_to_pose), 0.1 to 1000
 # mm/s.
-LINEAR_SPEED = 100
+LINEAR_SPEED = 800
 
 # TODO: Tool acceleration of linear moves, 1 to 50000 mm/s^2.
-LINEAR_ACCELERATION = 1000
+LINEAR_ACCELERATION = 30000
 
 # TODO: Change if the gripper closes too slowly or too hard.
 GRIPPER_SPEED = 5000  # range: 0-5k
@@ -429,6 +429,8 @@ class ModularRobot:
     # Note: no pause check is needed here. self.arm.set_state(3)/(0)
     # (see handle_pause_resume_button) pauses and resumes these SDK
     # calls directly, whether they are idle or already mid-move.
+    # Moves are queued (wait=False) and return at once; a gripper call
+    # makes the SDK wait for the arm to finish before it acts.
 
     def move_to_via(self, via_angles, label):
         """Move the robot to one joint-space via point."""
@@ -440,7 +442,7 @@ class ModularRobot:
             angle=via_angles,
             speed=ANGLE_SPEED,
             mvacc=ANGLE_ACCELERATION,
-            wait=True,
+            wait=False,
             radius=-1.0,
         )
         move_ok = self.check_code(code, label)
@@ -462,7 +464,7 @@ class ModularRobot:
             speed=LINEAR_SPEED,
             mvacc=LINEAR_ACCELERATION,
             radius=-1.0,
-            wait=True,
+            wait=False,
         )
         move_ok = self.check_code(code, label)
         return move_ok and self.state in (STATE_RUNNING, STATE_PAUSED)
