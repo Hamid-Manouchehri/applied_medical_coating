@@ -98,9 +98,9 @@ VIA_JOINT_START_STOP_HOME = [1.3, -20.7, -15.2, 35.8, 91.3]
 VIA_JOINT_HOME = [1.3, -2.1, -13.8, 15.8, 91.3]
 VIA_JOINT_DI2 = [0.8, -15.5, -77.8, 93.2, 91.0]
 VIA_CART_1 = [287.4, 7.4, 160.0, 180.0, 0.0, -90.0]
-VIA_CART_2 = [287.3, 7.6, 212.0, 180.0, 0.0, -90.0]
+VIA_CART_2 = [287.3, 7.6, 200, 180.0, 0., -90.]
 VIA_JOINT_3 = [1.0, 17.4, -34.5, 18.3, 90.9]
-VIA_JOINT_4 = [1.3, -10.5, -14.1, 23.7, 91.3]
+VIA_JOINT_4 = [1.3, -8.5, -14.0, 21.7, 91.3]
 
 # TODO: Gripper positions, device units. Typically 0 (closed) up to
 # about 850 (fully open) for the xArm gripper. Use any value you want.
@@ -122,10 +122,10 @@ DI2_ANGLE_ACCELERATION = 100
 
 # TODO: Tool speed of linear moves (move_linear_to_pose), 0.1 to 1000
 # mm/s.
-LINEAR_SPEED = 800
+LINEAR_SPEED = 1000
 
 # TODO: Tool acceleration of linear moves, 1 to 50000 mm/s^2.
-LINEAR_ACCELERATION = 30000
+LINEAR_ACCELERATION = 50000
 
 # TODO: Change if the gripper closes too slowly or too hard.
 GRIPPER_SPEED = 5000  # range: 0-5k

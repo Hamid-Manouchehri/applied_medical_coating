@@ -36,11 +36,11 @@ ROBOT_IP = "192.168.1.229"
 MOVE_TYPE = "J"
 
 # TODO: MoveJ target, (q1, q2, q3, q4, q5) in degrees.
-TARGET_ANGLES = [1.3, -17.6, -14.8, 31.5, 91.3]
+TARGET_ANGLES = [1.0, 17.4, -34.5, 18.3, 90.9]
 
 # TODO: MoveL target, [x, y, z, roll, pitch, yaw] in mm and degrees.
 # On the xArm 5, roll must be 180 and pitch 0.
-TARGET_POSE = [287.4, 7.4, 160.0, 180.0, 0., -90.]
+TARGET_POSE = [287.3, 7.6, 200, 180.0, 0., -90.]
 
 # TODO: MoveJ joint speed, 0.006 to 229 deg/s. Keep it low for tests.
 ANGLE_SPEED = 20
