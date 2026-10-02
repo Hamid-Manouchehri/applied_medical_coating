@@ -110,10 +110,10 @@ GRIPPER_OPEN_POSITION = 100
 GRIPPER_CLOSED_POSITION = 0
 
 # TODO: Joint speed range is about 0.006 to 229 deg/s.
-ANGLE_SPEED = 50
+ANGLE_SPEED = 500
 
 # TODO: Joint acceleration range is about 0.57 to 1146 deg/s^2.
-ANGLE_ACCELERATION = 100
+ANGLE_ACCELERATION = 400
 
 # TODO: Tool speed of linear moves (move_linear_to_pose), 0.1 to 1000
 # mm/s.
@@ -488,7 +488,7 @@ class ModularRobot:
 
         code = self.arm.set_gripper_position(
             position,
-            wait=True,
+            wait=False,
             speed=GRIPPER_SPEED,
             auto_enable=True,
         )
@@ -506,8 +506,6 @@ class ModularRobot:
         want. This example just demonstrates the pattern."""
         if not self.set_gripper(GRIPPER_OPEN_POSITION, "gripper_open"):
             return
-        # if not self.move_to_via(VIA_JOINT_HOME, "via_home"):
-        #     return
         if not self.move_linear_to_pose(VIA_CART_1, "via_cart_1"):
             return
         if not self.set_gripper(GRIPPER_CLOSED_POSITION, "gripper_open"):
