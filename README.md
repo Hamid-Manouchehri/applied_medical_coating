@@ -35,6 +35,8 @@ Robot IP:    192.168.1.200
 ping 192.168.1.200
 ```
 
+Note: Robot's IP is printed on its controller.
+
 If ping does not work, check the Ethernet cable, network settings, robot IP,
 and whether the controller is powered on.
 

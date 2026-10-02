@@ -21,10 +21,14 @@ control when run_sequence() executes:
         Stopped -> pressed -> robot re-enables and run_sequence()
                                starts (once, or repeating - see
                                LOOP_SEQUENCE_FOREVER below).
-        Running or paused -> pressed -> robot stops immediately.
+        Running or paused -> pressed -> robot decelerates to a stop
+                               (gentler than an abrupt halt).
 
     DI1 button (pause/resume toggle):
-        Running -> pressed -> pauses immediately, even mid-move.
+        Running -> pressed -> pauses immediately, even mid-move. The
+                               xArm's pause state has no gentler
+                               variant - see Important below if this
+                               needs to be smoother.
         Paused  -> pressed -> resumes immediately from where it
                                paused.
         Ignored if the robot is stopped.
@@ -41,14 +45,20 @@ Outputs:
     Robot motion and gripper commands sent to the xArm 6.
 
 Important:
-    Both the stop button and q call set_state(4), which can interrupt
-    a move that is already in progress and cannot be resumed - after
+    Both the stop button and q call set_state(6), the xArm's
+    "deceleration stop" state - it ramps the motion down instead of
+    an abrupt halt (set_state(4)), but still cannot be resumed; after
     a stop, run_sequence() starts over from the top.
 
     Pause uses the xArm's own pause state, set_state(3). This
     interrupts a move immediately, mid-trajectory, and resume
     (set_state(0)) continues that same move from where it paused -
-    unlike stop, nothing is lost or restarted.
+    unlike stop, nothing is lost or restarted. The firmware has no
+    gentler/decelerating version of pause (set_state only takes
+    0/3/4/6, nothing in between) - pausing always reacts as fast as
+    the controller can. If the jerk on pause is still too much, the
+    only real lever is lowering ANGLE_SPEED/ANGLE_ACCELERATION above:
+    less speed means less momentum to kill when a pause lands.
 
     q quits the whole script. The stop button only stops the current
     run; pressing start/stop again re-enables the robot and starts
@@ -72,24 +82,32 @@ from xarm.wrapper import XArmAPI
 ROBOT_IP = "192.168.1.200"
 
 # TODO: Joint-space via points, (q1, q2, q3, q4, q5, q6) in degrees.
+# VIA_HOME matches a known-good xArm 6 home pose. VIA_POINT_1/2/3
+# below were NOT reused as-is - they were copied from a 5-joint
+# xArm 5 setup (only 5 numbers, different geometry), so they do not
+# carry over to a 6-joint arm. Jog the real xArm 6 to each pose in
+# UFactory Studio first and read the actual joint angles back before
+# running this on hardware.
 # Add, remove, or rename these freely, then use them in run_sequence().
-VIA_HOME = [2.6, -43.0, -42.0, 0.0, 84.0, 6.0]
-VIA_POINT_1 = [2.6, -40.0, -53.0, 0.0, 90.0, 5.0]
-VIA_POINT_2 = [50.8, -12.0, -57.0, 75.0, 89.0, 5.0]
+VIA_HOME = [0., -16., -10.0, 0.0, 27.0, 6.0]
+VIA_POINT_1 = [0.0, -40.0, -21.0, 0.0, 60.0, 6.0]
+VIA_POINT_2 = [0.0, -43, -38.0, 0.0, 80.0, 6.0]
+VIA_POINT_3 = [55.0, -33.0, -36.0, 0.0, 36.0, 6.0]
+VIA_POINT_4 = VIA_POINT_2
 
 # TODO: Gripper positions, device units. Typically 0 (closed) up to
 # about 850 (fully open) for the xArm gripper. Use any value you want.
-GRIPPER_OPEN_POSITION = 280
+GRIPPER_OPEN_POSITION = 400
 GRIPPER_CLOSED_POSITION = 0
 
 # TODO: Joint speed range is about 0.006 to 229 deg/s.
-ANGLE_SPEED = 20
+ANGLE_SPEED = 300
 
 # TODO: Joint acceleration range is about 0.57 to 1146 deg/s^2.
-ANGLE_ACCELERATION = 500
+ANGLE_ACCELERATION = 200
 
 # TODO: Change if the gripper closes too slowly or too hard.
-GRIPPER_SPEED = 10000
+GRIPPER_SPEED = 4000  # range: 0-5k
 
 # TODO: Update if you know your real tool payload.
 GRIPPER_MASS_KG = 0.82
@@ -124,6 +142,13 @@ DIGITAL_READ_INTERVAL_SECONDS = 0.1
 STATE_STOPPED = "stopped"
 STATE_RUNNING = "running"
 STATE_PAUSED = "paused"
+
+# Controller error codes 19 and 28 both mean "End Module Communication
+# Error" - a gripper/end-effector RS485 comm glitch. This is usually a
+# transient wiring/noise blip, not a safety fault, so it is cleared
+# automatically instead of stopping the script. See error_warn_changed_
+# callback() below. Any other error code still stops the script.
+RECOVERABLE_ERROR_CODES = (19, 28)
 
 
 def read_keyboard_key():
@@ -167,8 +192,23 @@ class ModularRobot:
         )
 
     def error_warn_changed_callback(self, data):
-        """Stop the script if the robot reports an error."""
+        """Stop the script if the robot reports an error.
+
+        Codes 19/28 (end module comm glitch, see RECOVERABLE_ERROR_
+        CODES above) are cleared automatically and the script keeps
+        running. Any other error code stops the script so you can
+        check the robot.
+        """
         if data and data["error_code"] != 0:
+            if data["error_code"] in RECOVERABLE_ERROR_CODES:
+                self.print_message(
+                    "error={} (end module comm glitch), "
+                    "auto-clearing.".format(data["error_code"])
+                )
+                self.arm.clean_error()
+                self.arm.set_state(0)
+                return
+
             self.alive = False
             self.print_message("error={}, quit".format(data["error_code"]))
             self.arm.release_error_warn_changed_callback(
@@ -176,14 +216,25 @@ class ModularRobot:
             )
 
     def state_changed_callback(self, data):
-        """Stop the script if the robot enters state 4."""
-        if data and data["state"] == 4:
+        """Stop the script if the robot enters a stop state.
+
+        4 is an abrupt stop, 6 is a deceleration stop - the stop
+        button and q use 6 (see handle_start_stop_button /
+        keyboard_monitor_loop) for a gentler halt, but either can
+        happen (e.g. an external stop from Studio), so both are
+        handled the same way here.
+        """
+        if data and data["state"] in (4, 6):
             if self.stop_button_active or self.quit_requested:
-                self.print_message("state=4 from stop button or q.")
+                self.print_message(
+                    "state={} from stop button or q.".format(
+                        data["state"]
+                    )
+                )
                 return
 
             self.alive = False
-            self.print_message("state=4, quit")
+            self.print_message("state={}, quit".format(data["state"]))
             self.arm.release_state_changed_callback(
                 self.state_changed_callback
             )
@@ -250,7 +301,11 @@ class ModularRobot:
         monitor_thread.start()
 
     def keyboard_monitor_loop(self):
-        """Quit the whole script the moment q is pressed."""
+        """Quit the whole script the moment q is pressed.
+
+        Uses set_state(6), a deceleration stop, so the robot ramps
+        down instead of halting abruptly.
+        """
         while self.keyboard_monitor_running and self.arm.connected:
             key = read_keyboard_key()
 
@@ -259,7 +314,7 @@ class ModularRobot:
                 self.quit_requested = True
                 self.state = STATE_STOPPED
                 self.keyboard_monitor_running = False
-                self.arm.set_state(4)
+                self.arm.set_state(6)
                 return
 
             time.sleep(KEYBOARD_READ_INTERVAL_SECONDS)
@@ -279,7 +334,11 @@ class ModularRobot:
         return read_value
 
     def handle_start_stop_button(self):
-        """Toggle between stopped and running."""
+        """Toggle between stopped and running.
+
+        Stopping uses set_state(6), a deceleration stop, so the
+        robot ramps down instead of halting abruptly.
+        """
         if self.state == STATE_STOPPED:
             self.print_message("Start/stop button pressed. Starting.")
             self.state = STATE_RUNNING
@@ -287,7 +346,7 @@ class ModularRobot:
             self.print_message("Start/stop button pressed. Stopping.")
             self.stop_button_active = True
             self.state = STATE_STOPPED
-            self.arm.set_state(4)
+            self.arm.set_state(6)
 
     def handle_pause_resume_button(self):
         """Toggle between running and paused.
@@ -401,21 +460,25 @@ class ModularRobot:
     def run_sequence(self):
         """Call move_to_via() / set_gripper() here in any order you
         want. This example just demonstrates the pattern."""
+        if not self.set_gripper(GRIPPER_OPEN_POSITION, "gripper_open"):
+            return
         if not self.move_to_via(VIA_HOME, "via_home"):
             return
-        if not self.set_gripper(GRIPPER_OPEN_POSITION, "gripper_open"):
+        # if not self.move_to_via(VIA_POINT_1, "via_point_1"):
+        #     return
+        if not self.set_gripper(GRIPPER_CLOSED_POSITION, "gripper_open"):
             return
-        if not self.move_to_via(VIA_POINT_1, "via_point_1"):
-            return
-        if not self.set_gripper(GRIPPER_CLOSED_POSITION, "gripper_close"):
-            return
+        # if not self.set_gripper(GRIPPER_CLOSED_POSITION, "gripper_close"):
+        #     return
         if not self.move_to_via(VIA_POINT_2, "via_point_2"):
             return
+        if not self.move_to_via(VIA_POINT_3, "via_point_2"):
+            return
         if not self.set_gripper(GRIPPER_OPEN_POSITION, "gripper_open"):
             return
-        if not self.move_to_via(VIA_POINT_1, "via_point_2"):
+        if not self.move_to_via(VIA_POINT_4, "via_point_4"):
             return
-        self.move_to_via(VIA_HOME, "via_home")
+        # self.move_to_via(VIA_HOME, "via_home")
 
     def prepare_robot_for_run(self):
         """Re-enable the robot before run_sequence() starts.
