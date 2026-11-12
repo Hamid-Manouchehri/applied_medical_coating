@@ -1,41 +1,71 @@
 #!/usr/bin/env python3
-"""Simple xArm 6 pick-and-place between two Cartesian way points.
+"""Simple xArm 6 pick-and-place with a Dynamixel motor on the tool bus.
 
 No external buttons: run the script and, after a short countdown, the
 robot runs run_sequence() by itself, once or repeatedly (see
 LOOP_SEQUENCE_FOREVER). Press q at any time to stop the robot and quit.
 
-Two building blocks, called in any order inside run_sequence():
+Building blocks, called in any order inside run_sequence():
 
-    move_to_pose(pose, label)
+    move_to_pose(pose, label, wait=False)
         Moves the tool in a straight line (moveL) to a Cartesian pose
         [x, y, z, roll, pitch, yaw] in mm and degrees.
 
     set_gripper(position, label)
-        Moves the gripper to any position you choose.
+        Moves the UFactory gripper to any position you choose.
 
-The sequence has four way points:
+    move_motor(position, label, speed=None, wait=False)
+        Sends the Dynamixel RX-24F to an absolute position 0..1023
+        (1 step = 0.293 deg, 1023 steps = 300 deg) at a speed 1..1023.
+
+The Dynamixel is reached as in x-armtest2.py:
+    PC --Ethernet--> xArm --tool RS-485--> STM32 (Modbus ID 10) -->
+    Dynamixel RX-24F
+The UFactory gripper (Modbus ID 8) is on the same tool RS-485 bus.
+
+The sequence:
 
     open gripper (once, at the start) and then, every cycle:
-    PICK_POSE -> close gripper -> WAYPOINT_1 -> WAYPOINT_2 ->
-    PLACE_POSE -> open gripper
+    PICK_POSE -> close gripper -> [motor to MOTOR_POSITION_1] ->
+    WAYPOINT_1 -> WAYPOINT_2 -> PLACE_POSE -> open gripper ->
+    [motor to MOTOR_POSITION_2]
+
+Moving the motor while the arm moves:
+    The tool bus is separate from the arm's motion queue, so a motor
+    command can run while the arm moves. move_to_pose() and
+    move_motor() return at once (wait=False) and the move runs on its
+    own. The arm's moves are queued, so the script runs ahead of the
+    arm: a motor command starts together with the arm move queued
+    right after it only when the arm is idle at that moment. A gripper
+    command waits for the arm to arrive, so the arm is idle right
+    after one. For other timing use wait=True, which makes a move
+    block until it has finished, or put a move_motor(..., wait=True).
 
 Inputs:
     Robot connection through ROBOT_IP.
     PICK_POSE, WAYPOINT_1, WAYPOINT_2, PLACE_POSE, each
     [x, y, z, roll, pitch, yaw] in mm/deg.
     Gripper positions (device units, 0 = closed).
+    MOTOR_POSITION_1/2 (0..1023) and MOTOR_SPEED (1..1023).
     Keyboard key "q", pressed at any time, to stop and quit.
 
 Outputs:
-    Robot motion and gripper commands sent to the xArm 6.
+    Robot, gripper and motor commands sent through the xArm 6.
 
 Important:
     - If any way point is set to None the script refuses to run. Jog
       the real xArm 6 to each pose in UFactory Studio and enter the
-      Cartesian values it shows. WAYPOINT_1 and WAYPOINT_2 are
-      placeholders equal to the pick/place poses, so they add no
-      motion until you change them.
+      Cartesian values it shows.
+    - MOTOR_POSITION_1/2 start as None, which skips the motor move.
+      At start-up the script prints the motor's current position; set
+      the targets from that. Check the motor's travel is clear first.
+    - At start-up the tool bus baud rate is set to MODBUS_BAUDRATE if
+      it differs, which reboots the tool module. Do not change it
+      while the arm is moving. Set USE_DYNAMIXEL = False to leave the
+      tool bus alone and run the arm and gripper only.
+    - If the STM32 or the Dynamixel does not answer at start-up, the
+      script refuses to run. If a motor command fails later, the arm
+      is stopped with a deceleration stop and the run ends.
     - There is no home point: the first move is a straight line from
       wherever the robot is now to PICK_POSE, and the way points are
       joined by straight lines. Make sure those paths are clear.
@@ -43,8 +73,8 @@ Important:
       moving START_DELAY_SECONDS after the script starts. Press q
       during that countdown to cancel.
     - q calls set_state(6), a deceleration stop: the robot ramps down
-      instead of halting abruptly. It cannot be resumed; start the
-      script again.
+      instead of halting abruptly, and the motor is told to hold its
+      current position. It cannot be resumed; start the script again.
     - If any command fails (robot error, external stop, ...), the run
       ends and the robot stays where it is.
     - To keep each cycle fast, gripper commands do not wait for the
@@ -106,6 +136,37 @@ GRIPPER_SPEED = 5000  # range: 0-5k
 # dragged away, raise this (e.g. 0.3).
 GRIPPER_SETTLE_SECONDS = 0.0
 
+# TODO: Set True to drive the Dynamixel motor from this script. Set
+# False to run the arm and gripper alone (the tool bus is not touched).
+USE_DYNAMIXEL = True
+
+# TODO: Motor targets, absolute position 0..1023 (1 step = 0.293 deg,
+# 1023 steps = 300 deg). None skips the move. MOTOR_POSITION_1 is sent
+# right after the pick, MOTOR_POSITION_2 right after the place (see
+# run_sequence()). The motor's position is printed at start-up.
+MOTOR_POSITION_1 = 10
+MOTOR_POSITION_2 = 20
+
+# TODO: Motor speed, 1..1023 (1 unit is about 0.111 rpm, 100 = ~11 rpm).
+MOTOR_SPEED = 10
+
+# TODO: Longest wait for a motor move when wait=True, in seconds.
+MOTOR_MOVE_TIMEOUT_SECONDS = 30
+
+# TODO: Modbus ID of the STM32 (the UFactory gripper is 8).
+STM_ID = 10
+
+# TODO: Tool RS-485 baud rate, same as USART2 in the STM32 (and the
+# UFactory gripper's default).
+MODBUS_BAUDRATE = 2000000
+
+# TODO: Tool RS-485 Modbus reply timeout, in milliseconds.
+MODBUS_TIMEOUT_MS = 50
+
+# TODO: How many times to try reaching the STM32 at start-up before
+# giving up (errors are cleared before each try).
+MOTOR_SETUP_ATTEMPTS = 5
+
 # TODO: Update if you know your real tool payload.
 GRIPPER_MASS_KG = 0.82
 GRIPPER_CENTER_OF_MASS_MM = [0, 0, 48]
@@ -129,6 +190,26 @@ KEYBOARD_READ_INTERVAL_SECONDS = 0.05
 # automatically instead of stopping the script. See error_warn_changed_
 # callback() below. Any other error code still stops the script.
 RECOVERABLE_ERROR_CODES = (19, 28)
+
+# STM32 registers, from x-armtest2.py.
+TOOL_RS485_HOST_ID = 9   # tool-end RS-485 port, not a device ID
+REG_SPEED = 4
+REG_MOVE_ABS = 6
+REG_SCAN_STATE = 10      # 10 scan state, 11 id, 12 baud/100, 13 progress,
+                         # 14 spinning, 15 ready
+REG_POSITION = 16        # 16 pos, 17 valid, 18 moving, 19 goal, 20 speed,
+                         # 21 mode, 22 clamped
+SCAN_RUNNING = 1
+EXCEPTIONS = {
+    1: "illegal function",
+    2: "illegal register",
+    3: "illegal value",
+    6: "busy (scan running)",
+}
+
+
+class ModbusError(Exception):
+    """A tool-bus Modbus request to the STM32 failed."""
 
 
 def read_keyboard_key():
@@ -285,17 +366,275 @@ class PickAndPlaceRobot:
                 self.quit_requested = True
                 self.keyboard_monitor_running = False
                 self.arm.set_state(6)
+                self.stop_motor()
                 return
 
             time.sleep(KEYBOARD_READ_INTERVAL_SECONDS)
 
+    # --- Dynamixel motor on the tool RS-485 bus (STM32 behind it) ---
+
+    def motor_modbus(self, frame):
+        """Send a Modbus frame to the STM32 (the xArm adds the CRC).
+
+        Returns the reply as a list of bytes. Raises ModbusError.
+        """
+        code, reply = self.arm.getset_tgpio_modbus_data(
+            frame, host_id=TOOL_RS485_HOST_ID
+        )
+        reply = list(reply) if reply else []
+
+        if code == 1:
+            raise ModbusError(
+                "the controller has an uncleared error (C{}), so it "
+                "refused the request (code 1)".format(self.arm.error_code)
+            )
+
+        if code != 0:
+            raise ModbusError(
+                "no reply from STM32 (code {}) - check A/B, GND, "
+                "baud".format(code)
+            )
+
+        # An exception reply looks like: ID, function | 0x80, code.
+        for i in range(len(reply) - 2):
+            if reply[i] == STM_ID and reply[i + 1] in (0x83, 0x86):
+                raise ModbusError(
+                    "STM32 refused: {}".format(
+                        EXCEPTIONS.get(reply[i + 2], reply[i + 2])
+                    )
+                )
+
+        return reply
+
+    def motor_write(self, register, value):
+        """Write one STM32 register."""
+        value &= 0xFFFF
+        self.motor_modbus(
+            [STM_ID, 0x06, register >> 8, register & 0xFF,
+             value >> 8, value & 0xFF]
+        )
+
+    def motor_read(self, start, quantity):
+        """Read STM32 registers, return them as a list of numbers."""
+        reply = self.motor_modbus(
+            [STM_ID, 0x03, start >> 8, start & 0xFF, 0, quantity]
+        )
+
+        for i in range(len(reply) - 2):
+            if (
+                reply[i] == STM_ID
+                and reply[i + 1] == 0x03
+                and reply[i + 2] == quantity * 2
+            ):
+                data = reply[i + 3:i + 3 + quantity * 2]
+                if len(data) == quantity * 2:
+                    return [
+                        (data[j] << 8) | data[j + 1]
+                        for j in range(0, len(data), 2)
+                    ]
+
+        raise ModbusError("unexpected reply {}".format(reply))
+
+    def read_motor(self):
+        """Read the motor state: position, valid, moving, goal, ..."""
+        values = self.motor_read(REG_POSITION, 7)
+        keys = (
+            "pos", "valid", "moving", "goal", "speed", "mode", "clamped"
+        )
+        return dict(zip(keys, values))
+
+    def clear_controller_errors(self):
+        """Clear errors and warnings and re-enable the arm.
+
+        Needed after the tool module reboots: that raises error C19
+        (end module communication), and while any error is active the
+        controller refuses tool-bus requests with code 1.
+        """
+        for _ in range(10):
+            self.arm.clean_warn()
+            self.arm.clean_error()
+            self.arm.motion_enable(True)
+            self.arm.set_mode(0)
+            self.arm.set_state(0)
+            time.sleep(0.3)
+
+            _, error_warn = self.arm.get_err_warn_code()
+            if error_warn[0] == 0:
+                return True
+
+        return False
+
+    def read_motor_setup(self):
+        """Read the STM32 scan state and the motor state.
+
+        Returns (servo_id, baud100, ready, motion). Raises ModbusError.
+        """
+        # Right after power-up the STM32 may still be scanning.
+        for _ in range(100):
+            state, servo_id, baud100, _, _, ready = self.motor_read(
+                REG_SCAN_STATE, 6
+            )
+            if state != SCAN_RUNNING:
+                break
+            time.sleep(0.3)
+
+        return servo_id, baud100, ready, self.read_motor()
+
+    def init_motor(self):
+        """Set up the tool bus and check the STM32 and Dynamixel answer.
+
+        Runs once at start-up, before any motion: changing the baud rate
+        reboots the tool module, which raises a controller error, so the
+        errors are cleared afterwards and the first requests are retried.
+        Returns False if the motor is not ready.
+        """
+        if self.arm.get_tgpio_modbus_baudrate()[1] != MODBUS_BAUDRATE:
+            self.print_message(
+                "Setting the tool bus baud rate to {}.".format(
+                    MODBUS_BAUDRATE
+                )
+            )
+            self.arm.set_tgpio_modbus_baudrate(MODBUS_BAUDRATE)
+            time.sleep(1)
+        self.arm.set_tgpio_modbus_timeout(MODBUS_TIMEOUT_MS)
+
+        for attempt in range(1, MOTOR_SETUP_ATTEMPTS + 1):
+            self.clear_controller_errors()
+            try:
+                servo_id, baud100, ready, motion = self.read_motor_setup()
+                break
+            except ModbusError as error:
+                self.print_message(
+                    "Motor setup attempt {} of {} failed: {}".format(
+                        attempt, MOTOR_SETUP_ATTEMPTS, error
+                    )
+                )
+                time.sleep(0.5)
+        else:
+            self.print_message(
+                "Motor setup failed. Check the tool bus wiring, or set "
+                "USE_DYNAMIXEL = False."
+            )
+            return False
+
+        if not ready or not motion["valid"]:
+            self.print_message(
+                "Dynamixel is not answering (servo ID {}, baud {}). "
+                "Check its wiring, or set USE_DYNAMIXEL = False.".format(
+                    servo_id, baud100 * 100
+                )
+            )
+            return False
+
+        self.print_message(
+            "Dynamixel ready: ID {}, baud {}, position {} ({:.1f} "
+            "deg).".format(
+                servo_id,
+                baud100 * 100,
+                motion["pos"],
+                motion["pos"] * 300.0 / 1023.0,
+            )
+        )
+        return True
+
+    def init_tool(self):
+        """Set up the tool bus: motor first, then the gripper.
+
+        The gripper is enabled here once, because set_gripper() does not
+        enable it. Returns False if the motor is not ready.
+        """
+        if USE_DYNAMIXEL and not self.init_motor():
+            return False
+
+        self.arm.set_gripper_mode(0)
+        self.arm.set_gripper_enable(True)
+        return True
+
+    def stop_motor(self):
+        """Tell the motor to hold its current position (best effort).
+
+        Used when q is pressed or a run fails. The motor's goal is set
+        to where it is now, so a move in progress is cut short.
+        """
+        if not USE_DYNAMIXEL:
+            return
+
+        try:
+            motion = self.read_motor()
+            if motion["valid"]:
+                self.motor_write(REG_MOVE_ABS, motion["pos"])
+        except ModbusError as error:
+            self.print_message("Could not hold the motor: {}".format(error))
+
     # --- Building blocks: call these in any order in run_sequence() ---
 
-    def move_to_pose(self, pose, label):
+    def move_motor(self, position, label, speed=None, wait=False):
+        """Send the Dynamixel to an absolute position, 0..1023.
+
+        With wait=False the call returns as soon as the command is sent
+        and the motor moves on its own, while the arm keeps moving. With
+        wait=True it waits until the motor has arrived. A new command
+        replaces the goal of a move still in progress. A position of
+        None, or USE_DYNAMIXEL = False, skips the move.
+        """
+        if self.quit_requested:
+            return False
+
+        if not USE_DYNAMIXEL or position is None:
+            self.print_message("Motor {}: skipped.".format(label))
+            return True
+
+        speed = MOTOR_SPEED if speed is None else speed
+        self.print_message(
+            "Motor to {}: position {}, speed {}".format(
+                label, position, speed
+            )
+        )
+
+        try:
+            self.motor_write(REG_SPEED, speed)
+            self.motor_write(REG_MOVE_ABS, position)
+            if wait:
+                self.wait_for_motor(label)
+        except ModbusError as error:
+            self.print_message(
+                "Motor {} failed: {}. Stopping the arm.".format(
+                    label, error
+                )
+            )
+            self.alive = False
+            self.arm.set_state(6)
+            return False
+
+        return not self.quit_requested
+
+    def wait_for_motor(self, label):
+        """Wait until the motor has arrived, or the timeout passes."""
+        time.sleep(0.15)  # let the servo start and the STM32 refresh
+        started = time.time()
+
+        while not self.quit_requested:
+            if not self.read_motor()["moving"]:
+                return
+
+            if time.time() - started > MOTOR_MOVE_TIMEOUT_SECONDS:
+                self.print_message(
+                    "Motor {} still moving after {} s (blocked? "
+                    "overloaded?).".format(
+                        label, MOTOR_MOVE_TIMEOUT_SECONDS
+                    )
+                )
+                return
+
+            time.sleep(0.1)
+
+    def move_to_pose(self, pose, label, wait=False):
         """Move the tool in a straight line (moveL) to a Cartesian pose.
 
         pose is [x, y, z, roll, pitch, yaw] in mm and degrees, in the
         robot base frame. The line starts from wherever the robot is.
+        With wait=False the move is queued and the call returns at once;
+        with wait=True it returns when the arm has arrived.
         """
         if self.quit_requested:
             return False
@@ -306,7 +645,7 @@ class PickAndPlaceRobot:
             speed=LINEAR_SPEED,
             mvacc=LINEAR_ACCELERATION,
             radius=-1.0,
-            wait=False,
+            wait=wait,
         )
         move_ok = self.check_code(code, label)
         return move_ok and not self.quit_requested
@@ -342,11 +681,17 @@ class PickAndPlaceRobot:
 
         Starts with the gripper open (run() opens it once before the
         first cycle, and each cycle ends by opening it). Call
-        move_to_pose() / set_gripper() here in any order you want.
+        move_to_pose() / set_gripper() / move_motor() here in any order
+        you want.
         """
         if not self.move_to_pose(PICK_POSE, "pick"):
             return False
         if not self.set_gripper(GRIPPER_CLOSED_POSITION, "gripper_close"):
+            return False
+
+        # The arm is idle here (the gripper waited for it), so the motor
+        # starts together with the arm's trip towards the place pose.
+        if not self.move_motor(MOTOR_POSITION_1, "motor_1"):
             return False
         if not self.move_to_pose(WAYPOINT_1, "waypoint_1"):
             return False
@@ -354,8 +699,12 @@ class PickAndPlaceRobot:
             return False
         if not self.move_to_pose(PLACE_POSE, "place"):
             return False
+        if not self.set_gripper(GRIPPER_OPEN_POSITION, "gripper_open"):
+            return False
 
-        return self.set_gripper(GRIPPER_OPEN_POSITION, "gripper_open")
+        # The arm is idle here too, so this runs while it goes back to
+        # the pick pose at the start of the next cycle.
+        return self.move_motor(MOTOR_POSITION_2, "motor_2")
 
     def wait_for_start(self):
         """Count down before the first move; q cancels."""
@@ -391,6 +740,9 @@ class PickAndPlaceRobot:
             if not self.check_code(code, "set_tcp_load_gripper"):
                 return
 
+            if not self.init_tool():
+                return
+
             self.start_keyboard_monitor()
 
             if not self.wait_for_start():
@@ -408,6 +760,8 @@ class PickAndPlaceRobot:
             while not self.quit_requested:
                 if not self.run_sequence():
                     self.print_message("Sequence stopped.")
+                    if not self.quit_requested:
+                        self.stop_motor()
                     break
 
                 cycle_count += 1
