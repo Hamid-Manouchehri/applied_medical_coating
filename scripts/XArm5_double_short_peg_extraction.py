@@ -128,7 +128,7 @@ GRIPPER_CLOSED_POSITION = 0
 ANGLE_SPEED = 230
 
 # TODO: Joint acceleration range is about 0.57 to 1146 deg/s^2.
-ANGLE_ACCELERATION = 1000
+ANGLE_ACCELERATION = 800
 
 # TODO: Joint speed of the DI2 move, 0.006 to 229 deg/s. Kept apart
 # from ANGLE_SPEED because it starts from wherever the robot stopped.
